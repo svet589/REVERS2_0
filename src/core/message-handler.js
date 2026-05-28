@@ -1,84 +1,85 @@
 // message-handler.js — сообщения, файлы, группы, каналы
 
+import p2pNetwork from './p2p-network.js';
 import cryptoModule from './crypto-module.js';
-import swarmManager from './swarm-manager.js';
+import identity from './identity.js';
 
 class MessageHandler {
   constructor() {
-    this.chats = new Map();       // peerId -> [{ from, text, time, type }]
-    this.groups = new Map();      // groupKey -> { name, admin, members, history }
-    this.channels = new Map();    // channelKey -> { name, admin, history }
-    this.onChatUpdate = null;     // Колбэк для UI
-    this.onMessage = null;        // Колбэк для входящих
-    
-    this.loadFromStorage();
+    this.chats = new Map();
+    this.groups = new Map();
+    this.channels = new Map();
+    this.onChatUpdate = null;
+    this.onMessage = null;
+    this._loadFromStorage();
   }
 
-  // ============ ЛИЧНЫЕ СООБЩЕНИЯ ============
+  // ========== ЛИЧНЫЕ СООБЩЕНИЯ ==========
 
-  async sendMessage(peerId, text) {
-    // Инициализируем ratchet если нужно
+  sendMessage(peerId, text) {
+    // Double Ratchet
     if (!cryptoModule.ratchetStates.has(peerId)) {
       const sharedSecret = cryptoModule.computeSharedSecret(
-        swarmManager.identity.secretKey,
-        swarmManager.peerConnections.get(peerId)?.profile?.publicKey
+        identity.secretKey,
+        identity.publicKey
       );
-      if (sharedSecret) {
-        cryptoModule.initRatchet(peerId, sharedSecret);
-      }
+      cryptoModule.initRatchet(peerId, sharedSecret);
     }
 
-    // Шифруем
-    let encrypted;
-    try {
-      encrypted = cryptoModule.encryptMessage(peerId, text);
-    } catch (e) {
-      // Fallback: без ratchet
-      encrypted = { encrypted: text, nonce: '', counter: 0 };
-    }
-
-    // Отправляем через swarm
-    const sent = swarmManager.sendToPeer(peerId, encrypted);
+    const encrypted = cryptoModule.encryptMessage(peerId, text);
     
+    const sent = p2pNetwork.sendToPeer(peerId, {
+      type: 'message',
+      data: encrypted
+    });
+
     if (sent) {
-      this.saveMessage(peerId, {
-        from: swarmManager.identity.id,
+      this._saveMessage(peerId, {
+        from: identity.id,
         text,
         time: Date.now(),
         type: 'text',
         sent: true
       });
+    } else {
+      // Сохраняем локально даже если не отправилось
+      this._saveMessage(peerId, {
+        from: identity.id,
+        text,
+        time: Date.now(),
+        type: 'text',
+        sent: false
+      });
     }
-    
+
     return sent;
   }
 
-  async sendFile(peerId, file) {
-    const reader = new FileReader();
-    
+  sendFile(peerId, file) {
     return new Promise((resolve) => {
+      const reader = new FileReader();
       reader.onload = async (e) => {
         const base64 = e.target.result;
         
-        // Для файлов > 5KB используем стеганографию (прячем в картинке-заглушке)
+        // Стеганография для больших файлов
         let payload = base64;
-        if (file.size > 5000) {
-          // Создаём картинку-контейнер и прячем файл внутри
-          const container = this.createContainerImage();
-          payload = await cryptoModule.encodeStegano(container, base64);
+        if (file.size > 5000 && file.type.startsWith('image/')) {
+          try {
+            payload = await cryptoModule.encodeStegano(base64, 'REVERS_FILE');
+          } catch (err) {}
         }
-        
-        const sent = swarmManager.sendToPeer(peerId, {
+
+        const sent = p2pNetwork.sendToPeer(peerId, {
           type: 'file',
           name: file.name,
           size: file.size,
           mime: file.type,
           data: payload
         });
-        
+
         if (sent) {
-          this.saveMessage(peerId, {
-            from: swarmManager.identity.id,
+          this._saveMessage(peerId, {
+            from: identity.id,
             text: `📎 ${file.name}`,
             time: Date.now(),
             type: 'file',
@@ -89,46 +90,26 @@ class MessageHandler {
             sent: true
           });
         }
-        
+
         resolve(sent);
       };
-      
       reader.readAsDataURL(file);
     });
   }
 
-  // ============ ГРУППЫ ============
+  // ========== ГРУППЫ ==========
 
   createGroup(name) {
-    const groupKey = 'group_' + Date.now().toString(36);
-    
-    this.groups.set(groupKey, {
+    const key = 'group_' + Date.now().toString(36);
+    this.groups.set(key, {
       name,
-      admin: swarmManager.identity.id,
-      members: [swarmManager.identity.id],
+      admin: identity.id,
+      members: [identity.id],
       history: [],
       created: Date.now()
     });
-
-    swarmManager.joinRoom(groupKey);
-    this.saveToStorage();
-    
-    return groupKey;
-  }
-
-  joinGroup(groupKey) {
-    if (this.groups.has(groupKey)) return;
-    
-    this.groups.set(groupKey, {
-      name: groupKey,
-      admin: null,
-      members: [swarmManager.identity.id],
-      history: [],
-      created: Date.now()
-    });
-
-    swarmManager.joinRoom(groupKey);
-    this.saveToStorage();
+    this._saveToStorage();
+    return key;
   }
 
   sendGroupMessage(groupKey, text) {
@@ -136,231 +117,183 @@ class MessageHandler {
     if (!group) return false;
 
     const msg = {
-      from: swarmManager.identity.id,
+      from: identity.id,
       text,
       time: Date.now(),
       type: 'text'
     };
 
     group.history.push(msg);
+    this._saveToStorage();
     
-    // Отправляем через swarm в комнату
-    swarmManager.broadcastToRoom(groupKey, {
-      type: 'group_message',
-      group: groupKey,
-      data: msg
-    });
-
-    this.saveToStorage();
     if (this.onChatUpdate) this.onChatUpdate();
     return true;
   }
 
-  // ============ КАНАЛЫ ============
+  // ========== КАНАЛЫ ==========
 
   createChannel(name) {
-    const channelKey = 'channel_' + Date.now().toString(36);
-    
-    this.channels.set(channelKey, {
+    const key = 'channel_' + Date.now().toString(36);
+    this.channels.set(key, {
       name,
-      admin: swarmManager.identity.id,
+      admin: identity.id,
       history: [],
       created: Date.now()
     });
-
-    swarmManager.joinRoom(channelKey);
-    this.saveToStorage();
-    
-    return channelKey;
+    this._saveToStorage();
+    return key;
   }
 
   sendChannelMessage(channelKey, text) {
     const channel = this.channels.get(channelKey);
-    if (!channel) return false;
-    
-    // Только админ может писать
-    if (channel.admin !== swarmManager.identity.id) return false;
+    if (!channel || channel.admin !== identity.id) return false;
 
-    const msg = {
-      from: swarmManager.identity.id,
+    channel.history.push({
+      from: identity.id,
       text,
       time: Date.now(),
       type: 'text'
-    };
-
-    channel.history.push(msg);
-    
-    swarmManager.broadcastToRoom(channelKey, {
-      type: 'channel_message',
-      channel: channelKey,
-      data: msg
     });
-
-    this.saveToStorage();
+    
+    this._saveToStorage();
     if (this.onChatUpdate) this.onChatUpdate();
     return true;
   }
 
-  // ============ ОБРАБОТКА ВХОДЯЩИХ ============
+  // ========== ОБРАБОТКА ВХОДЯЩИХ ==========
 
   handleIncoming(msg) {
-    const { from, data, room } = msg;
+    const { from, data, type } = msg;
 
-    // Пытаемся расшифровать
-    let decrypted = data;
+    if (type === 'hello') {
+      if (this.onChatUpdate) this.onChatUpdate();
+      return;
+    }
+
+    if (type === 'p2p-signal') {
+      if (this.onMessage) this.onMessage(msg);
+      return;
+    }
+
+    // Расшифровка
+    let text = data;
     try {
       if (typeof data === 'object' && data.encrypted) {
-        decrypted = cryptoModule.decryptMessage(from, data);
+        text = cryptoModule.decryptMessage(from, data);
+      } else if (typeof data === 'string') {
+        text = data;
       }
     } catch (e) {
-      // Не расшифровалось — используем как есть
-      decrypted = data?.text || data;
+      text = data?.text || data?.encrypted || String(data);
     }
 
     const messageObj = {
       from,
-      text: typeof decrypted === 'string' ? decrypted : decrypted?.text || '',
+      text: typeof text === 'string' ? text : text?.text || '',
       time: Date.now(),
-      type: data?.type || 'text',
+      type: type || 'text',
       fileData: data?.data || null,
       fileName: data?.name || null,
       fileSize: data?.size || null,
-      fileType: data?.mime || null,
-      room: room || null
+      fileType: data?.mime || null
     };
 
-    // Сохраняем
-    if (room) {
-      // Групповое/канальное
-      if (this.groups.has(room)) {
-        this.groups.get(room).history.push(messageObj);
-      } else if (this.channels.has(room)) {
-        this.channels.get(room).history.push(messageObj);
-      }
-    } else {
-      // Личное
-      this.saveMessage(from, messageObj);
-    }
-
-    this.saveToStorage();
-    
+    this._saveMessage(from, messageObj);
     if (this.onMessage) this.onMessage(messageObj);
     if (this.onChatUpdate) this.onChatUpdate();
   }
 
-  // ============ ХРАНЕНИЕ ============
+  // ========== ХРАНЕНИЕ ==========
 
-  saveMessage(peerId, msg) {
-    if (!this.chats.has(peerId)) {
-      this.chats.set(peerId, []);
-    }
+  _saveMessage(peerId, msg) {
+    if (!this.chats.has(peerId)) this.chats.set(peerId, []);
     this.chats.get(peerId).push(msg);
-    this.saveToStorage();
+    this._saveToStorage();
   }
 
   getChatHistory(peerId) {
     return this.chats.get(peerId) || [];
   }
 
-  getGroupHistory(groupKey) {
-    return this.groups.get(groupKey)?.history || [];
+  getGroupHistory(key) {
+    return this.groups.get(key)?.history || [];
   }
 
-  getChannelHistory(channelKey) {
-    return this.channels.get(channelKey)?.history || [];
+  getChannelHistory(key) {
+    return this.channels.get(key)?.history || [];
   }
 
   getAllChats() {
     const all = [];
-    
-    this.chats.forEach((messages, peerId) => {
-      const last = messages[messages.length - 1];
-      all.push({
-        id: peerId,
-        type: 'contact',
-        name: peerId,
-        lastMsg: last?.text || '',
-        lastTime: last?.time || 0,
-        unread: 0
+
+    // Сохранённые
+    const saved = this.chats.get('me') || [];
+    const lastSaved = saved[saved.length - 1];
+    all.push({
+      id: 'me', type: 'saved', name: '📔 Сохранённые',
+      lastMsg: lastSaved?.text || 'Нет сообщений',
+      lastTime: lastSaved?.time || Date.now(), unread: 0
+    });
+
+    // Контакты
+    this.chats.forEach((msgs, peerId) => {
+      if (peerId === 'me') return;
+      const last = msgs[msgs.length - 1];
+      if (last) all.push({
+        id: peerId, type: 'contact', name: peerId,
+        lastMsg: last.text, lastTime: last.time, unread: 0
       });
     });
 
-    this.groups.forEach((group, key) => {
-      const last = group.history[group.history.length - 1];
+    // Группы
+    this.groups.forEach((g, key) => {
+      const last = g.history[g.history.length - 1];
       all.push({
-        id: key,
-        type: 'group',
-        name: group.name,
-        lastMsg: last?.text || '',
-        lastTime: last?.time || 0,
-        unread: 0
+        id: key, type: 'group', name: '👥 ' + g.name,
+        lastMsg: last?.text || '', lastTime: last?.time || 0, unread: 0
       });
     });
 
-    this.channels.forEach((channel, key) => {
-      const last = channel.history[channel.history.length - 1];
+    // Каналы
+    this.channels.forEach((c, key) => {
+      const last = c.history[c.history.length - 1];
       all.push({
-        id: key,
-        type: 'channel',
-        name: channel.name,
-        lastMsg: last?.text || '',
-        lastTime: last?.time || 0,
-        unread: 0
+        id: key, type: 'channel', name: '📢 ' + c.name,
+        lastMsg: last?.text || '', lastTime: last?.time || 0, unread: 0
       });
     });
 
     return all.sort((a, b) => b.lastTime - a.lastTime);
   }
 
-  // ============ LOCALSTORAGE ============
-
-  saveToStorage() {
-    const data = {
-      chats: Array.from(this.chats.entries()),
-      groups: Array.from(this.groups.entries()),
-      channels: Array.from(this.channels.entries())
-    };
-    localStorage.setItem('revers_messages', JSON.stringify(data));
-  }
-
-  loadFromStorage() {
+  _saveToStorage() {
     try {
-      const raw = localStorage.getItem('revers_messages');
-      if (!raw) return;
-      
-      const data = JSON.parse(raw);
-      
-      if (data.chats) {
-        this.chats = new Map(data.chats);
-      }
-      if (data.groups) {
-        this.groups = new Map(data.groups);
-      }
-      if (data.channels) {
-        this.channels = new Map(data.channels);
-      }
+      localStorage.setItem('revers_chats', JSON.stringify(Array.from(this.chats.entries())));
+      localStorage.setItem('revers_groups', JSON.stringify(Array.from(this.groups.entries())));
+      localStorage.setItem('revers_channels', JSON.stringify(Array.from(this.channels.entries())));
     } catch (e) {
-      console.log('Ошибка загрузки сообщений:', e);
+      console.error('Ошибка сохранения:', e);
     }
   }
 
-  // ============ КАРТИНКА-КОНТЕЙНЕР (для стеганографии) ============
-
-  createContainerImage() {
-    // Минимальная PNG-заглушка 1×1 пиксель
-    return 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  _loadFromStorage() {
+    try {
+      const chats = JSON.parse(localStorage.getItem('revers_chats'));
+      const groups = JSON.parse(localStorage.getItem('revers_groups'));
+      const channels = JSON.parse(localStorage.getItem('revers_channels'));
+      
+      if (chats) this.chats = new Map(chats);
+      if (groups) this.groups = new Map(groups);
+      if (channels) this.channels = new Map(channels);
+      
+      if (!this.chats.has('me')) this.chats.set('me', []);
+    } catch (e) {
+      this.chats.set('me', []);
+    }
   }
 
-  // ============ КОЛБЭКИ ДЛЯ UI ============
-
-  setOnChatUpdate(callback) {
-    this.onChatUpdate = callback;
-  }
-
-  setOnMessage(callback) {
-    this.onMessage = callback;
-  }
+  setOnChatUpdate(cb) { this.onChatUpdate = cb; }
+  setOnMessage(cb) { this.onMessage = cb; }
 }
 
-const messageHandler = new MessageHandler();
-export default messageHandler;
+export default new MessageHandler();
