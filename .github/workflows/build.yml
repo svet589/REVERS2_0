@@ -27,7 +27,7 @@ jobs:
         run: |
           npx cap init REVERS com.revers.messenger --web-dir=src
           npx cap add android
-      - name: Copy Manifest
+      - name: Replace Manifest
         run: cp android-manifest.xml android/app/src/main/AndroidManifest.xml
       - name: Generate Icons
         run: npx capacitor-assets generate --iconBackgroundColor '#0F0F12' --iconBackgroundColorDark '#0F0F12'
