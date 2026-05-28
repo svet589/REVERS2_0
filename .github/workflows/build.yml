@@ -23,15 +23,15 @@ jobs:
         run: npm install
       - name: Build Bundle
         run: npm run build
-      - name: Generate Icons
-        run: npx capacitor-assets generate --iconBackgroundColor '#0F0F12' --iconBackgroundColorDark '#0F0F12'
       - name: Init Capacitor
         run: |
           npx cap init REVERS com.revers.messenger --web-dir=src
           npx cap add android
-      - name: Copy Android Manifest
+      - name: Copy Manifest
         run: cp android-manifest.xml android/app/src/main/AndroidManifest.xml
-      - name: Sync and Build APK
+      - name: Generate Icons
+        run: npx capacitor-assets generate --iconBackgroundColor '#0F0F12' --iconBackgroundColorDark '#0F0F12'
+      - name: Build APK
         run: |
           npx cap sync
           cd android
