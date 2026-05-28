@@ -1,7 +1,6 @@
 // app.js — точка входа UI
 
 import REVERS from './core/p2p-engine.js';
-import './styles.css';
 
 class REVERSApp {
   constructor() {
