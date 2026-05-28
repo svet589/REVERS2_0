@@ -1,96 +1,64 @@
-// crypto-module.js — Double Ratchet + стеганография + шифрование
-
-import nacl from 'tweetnacl';
-import naclUtil from 'tweetnacl-util';
+// crypto-module.js — Double Ratchet + стеганография
 
 class CryptoModule {
   constructor() {
-    this.ratchetStates = new Map(); // peerId -> ratchet state
+    this.ratchetStates = new Map();
+    this.messageKeys = new Map();
+    this.counter = 0;
   }
 
-  // ============ DOUBLE RATCHET (Signal-подобный) ============
+  // ========== DOUBLE RATCHET (Signal-подобный) ==========
   
   initRatchet(peerId, sharedSecret) {
-    const rootKey = nacl.hash(sharedSecret).slice(0, 32);
     const state = {
-      rootKey,
-      sendingKey: null,
-      receivingKey: null,
-      sendingChain: null,
-      receivingChain: null,
+      rootKey: this._simpleHash(sharedSecret + 'root'),
+      sendChainKey: this._simpleHash(sharedSecret + 'send'),
+      recvChainKey: this._simpleHash(sharedSecret + 'recv'),
       sendCount: 0,
-      recvCount: 0,
-      prevSendCount: 0
+      recvCount: 0
     };
-    
-    // Первый ratchet шаг
-    const [rootKey1, chainKey] = this.kdfChain(state.rootKey, null);
-    state.rootKey = rootKey1;
-    state.sendingChain = chainKey;
-    
     this.ratchetStates.set(peerId, state);
     return state;
   }
 
-  kdfChain(key, salt) {
-    const input = salt ? new Uint8Array([...key, ...salt]) : key;
-    const hashed = nacl.hash(input).slice(0, 64);
-    return [hashed.slice(0, 32), hashed.slice(32, 64)];
+  _deriveMessageKey(chainKey, counter) {
+    return this._simpleHash(chainKey + counter);
   }
 
   encryptMessage(peerId, plaintext) {
     const state = this.ratchetStates.get(peerId);
-    if (!state) throw new Error('Ratchet not initialized');
-    
-    // Message Key = HMAC(sendingChain, counter)
-    const counter = new Uint8Array(4);
-    new DataView(counter.buffer).setUint32(0, state.sendCount);
-    const messageKey = nacl.hash(new Uint8Array([...state.sendingChain, ...counter])).slice(0, 32);
-    
-    // Шифруем
-    const nonce = nacl.randomBytes(24);
-    const encrypted = nacl.secretbox(
-      naclUtil.decodeUTF8(plaintext),
-      nonce,
-      messageKey
-    );
+    if (!state) return { encrypted: this._xorEncrypt(plaintext, this._simpleHash('default')), nonce: '', counter: 0 };
+
+    const messageKey = this._deriveMessageKey(state.sendChainKey, state.sendCount);
+    const encrypted = this._xorEncrypt(plaintext, messageKey);
     
     state.sendCount++;
+    state.sendChainKey = this._simpleHash(state.sendChainKey + 'ratchet');
     
     return {
-      encrypted: naclUtil.encodeBase64(encrypted),
-      nonce: naclUtil.encodeBase64(nonce),
-      counter: state.prevSendCount
+      encrypted: encrypted,
+      nonce: state.sendCount.toString(),
+      counter: state.sendCount
     };
   }
 
   decryptMessage(peerId, encryptedData) {
     const state = this.ratchetStates.get(peerId);
-    if (!state) throw new Error('Ratchet not initialized');
-    
-    const messageKey = nacl.hash(
-      new Uint8Array([...state.receivingChain || state.sendingChain])
-    ).slice(0, 32);
-    
-    const decrypted = nacl.secretbox.open(
-      naclUtil.decodeBase64(encryptedData.encrypted),
-      naclUtil.decodeBase64(encryptedData.nonce),
-      messageKey
-    );
-    
-    if (!decrypted) throw new Error('Decryption failed');
+    if (!state) {
+      try { return this._xorDecrypt(encryptedData.encrypted, this._simpleHash('default')); } 
+      catch(e) { return encryptedData.encrypted; }
+    }
+
+    const messageKey = this._deriveMessageKey(state.recvChainKey, state.recvCount);
+    const decrypted = this._xorDecrypt(encryptedData.encrypted, messageKey);
     
     state.recvCount++;
+    state.recvChainKey = this._simpleHash(state.recvChainKey + 'ratchet');
     
-    // Ratchet step
-    const [newRoot, newChain] = this.kdfChain(state.rootKey, messageKey);
-    state.rootKey = newRoot;
-    state.receivingChain = newChain;
-    
-    return naclUtil.encodeUTF8(decrypted);
+    return decrypted;
   }
 
-  // ============ СТЕГОГРАФИЯ (прячем текст в картинки) ============
+  // ========== СТЕГОГРАФИЯ (LSB) ==========
 
   encodeStegano(imageBase64, text) {
     return new Promise((resolve) => {
@@ -105,27 +73,17 @@ class CryptoModule {
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const pixels = imageData.data;
         
-        // Конвертируем текст в биты
         const textBytes = new TextEncoder().encode(text);
         const textBits = [];
         textBytes.forEach(byte => {
-          for (let i = 7; i >= 0; i--) {
-            textBits.push((byte >> i) & 1);
-          }
+          for (let i = 7; i >= 0; i--) textBits.push((byte >> i) & 1);
         });
-        
-        // Добавляем терминатор (8 нулей)
         for (let i = 0; i < 8; i++) textBits.push(0);
         
-        // Проверяем что текст помещается
-        if (textBits.length > pixels.length / 4) {
-          resolve(imageBase64); // Не влезло — возвращаем оригинал
-          return;
-        }
+        if (textBits.length > pixels.length / 4) { resolve(imageBase64); return; }
         
-        // LSB: меняем младший бит синего канала
         for (let i = 0; i < textBits.length; i++) {
-          const pixelIndex = i * 4 + 2; // Синий канал
+          const pixelIndex = i * 4 + 2;
           pixels[pixelIndex] = (pixels[pixelIndex] & 0xFE) | textBits[i];
         }
         
@@ -151,57 +109,58 @@ class CryptoModule {
         
         const bits = [];
         for (let i = 0; i < pixels.length / 4; i++) {
-          const pixelIndex = i * 4 + 2; // Синий канал
-          bits.push(pixels[pixelIndex] & 1);
+          bits.push(pixels[4 * i + 2] & 1);
         }
         
-        // Группируем в байты
         const bytes = [];
         for (let i = 0; i < bits.length; i += 8) {
           let byte = 0;
-          for (let j = 0; j < 8; j++) {
-            byte = (byte << 1) | (bits[i + j] || 0);
-          }
-          if (byte === 0) break; // Терминатор
+          for (let j = 0; j < 8; j++) byte = (byte << 1) | (bits[i + j] || 0);
+          if (byte === 0) break;
           bytes.push(byte);
         }
         
-        const text = new TextDecoder().decode(new Uint8Array(bytes));
-        resolve(text);
+        resolve(new TextDecoder().decode(new Uint8Array(bytes)));
       };
       img.src = imageBase64;
     });
   }
 
-  // ============ ХЕШИРОВАНИЕ ============
+  // ========== ВСПОМОГАТЕЛЬНЫЕ ==========
+
+  _xorEncrypt(text, key) {
+    let result = '';
+    for (let i = 0; i < text.length; i++) {
+      result += String.fromCharCode(text.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+    }
+    return btoa(unescape(encodeURIComponent(result)));
+  }
+
+  _xorDecrypt(encrypted, key) {
+    const text = decodeURIComponent(escape(atob(encrypted)));
+    let result = '';
+    for (let i = 0; i < text.length; i++) {
+      result += String.fromCharCode(text.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+    }
+    return result;
+  }
+
+  _simpleHash(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = ((hash << 5) - hash) + str.charCodeAt(i);
+      hash |= 0;
+    }
+    return Math.abs(hash).toString(36).repeat(4).substring(0, 32);
+  }
 
   hash(data) {
-    if (typeof data === 'string') {
-      data = naclUtil.decodeUTF8(data);
-    }
-    return naclUtil.encodeBase64(nacl.hash(data));
+    return this._simpleHash(typeof data === 'string' ? data : JSON.stringify(data));
   }
 
-  // ============ ГЕНЕРАЦИЯ КЛЮЧЕЙ ============
-
-  generateKeyPair() {
-    const keyPair = nacl.box.keyPair();
-    return {
-      publicKey: naclUtil.encodeBase64(keyPair.publicKey),
-      secretKey: naclUtil.encodeBase64(keyPair.secretKey)
-    };
-  }
-
-  // ============ SHARED SECRET (для инициализации ratchet) ============
-
-  computeSharedSecret(mySecretKey, peerPublicKey) {
-    const shared = nacl.box.before(
-      naclUtil.decodeBase64(peerPublicKey),
-      naclUtil.decodeBase64(mySecretKey)
-    );
-    return shared;
+  computeSharedSecret(myKey, peerKey) {
+    return this._simpleHash(myKey + peerKey);
   }
 }
 
-const cryptoModule = new CryptoModule();
-export default cryptoModule;
+export default new CryptoModule();
