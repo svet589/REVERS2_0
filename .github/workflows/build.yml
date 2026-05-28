@@ -32,7 +32,7 @@ jobs:
           npm install @capacitor/core @capacitor/android @capacitor/assets
 
       - name: Generate Icons
-        run: npx capacitor-assets generate --iconBackgroundColor #0F0F12 --iconBackgroundColorDark #0F0F12 --splashBackgroundColor #0F0F12
+        run: npx capacitor-assets generate --iconBackgroundColor '#0F0F12' --iconBackgroundColorDark '#0F0F12' --splashBackgroundColor '#0F0F12' --splashBackgroundColorDark '#0F0F12'
 
       - name: Build APK
         run: |
