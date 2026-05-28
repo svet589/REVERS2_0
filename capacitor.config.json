@@ -2,16 +2,5 @@
   "appId": "com.revers.messenger",
   "appName": "REVERS",
   "webDir": "src",
-  "bundledWebRuntime": false,
-  "plugins": {
-    "SplashScreen": {
-      "launchShowDuration": 2000,
-      "backgroundColor": "#0F0F12",
-      "launchAutoHide": true
-    }
-  },
-  "android": {
-    "allowMixedContent": true,
-    "webContentsDebuggingEnabled": false
-  }
+  "bundledWebRuntime": false
 }
