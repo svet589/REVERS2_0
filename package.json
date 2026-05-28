@@ -3,11 +3,8 @@
   "version": "1.0.0",
   "description": "P2P мессенджер с полной анонимностью",
   "scripts": {
-    "build": "npx esbuild src/app.js --bundle --outfile=src/bundle.js --format=iife --platform=browser --define:global=window",
+    "build": "npx esbuild src/app.js --bundle --outfile=src/bundle.js --format=iife --platform=browser",
     "apk": "npm run build && npx cap sync && cd android && ./gradlew assembleDebug"
-  },
-  "dependencies": {
-    "simple-peer": "^9.11.1"
   },
   "devDependencies": {
     "@capacitor/core": "^5.0.0",
