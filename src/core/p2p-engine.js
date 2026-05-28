@@ -1,77 +1,197 @@
-// p2p-engine.js — главный API без заглушек
-
+// p2p-network.js — два транспорта: Simple Peer (основной) + заготовка под Hyperswarm
 import identity from './identity.js';
-import swarmManager from './swarm-manager.js';
-import messageHandler from './message-handler.js';
-import callManager from './call-manager.js';
 
-class P2PEngine {
+class P2PNetwork {
   constructor() {
-    this.ready = false;
-    this._onReady = null;
+    this.peers = new Map();
+    this.onMessageCallback = null;
+    this.onPeerCallback = null;
+    this.pendingSignals = [];
+    
+    // Конфиг WebRTC
+    this.rtcConfig = {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' }
+      ]
+    };
   }
 
-  async init() {
-    console.log('🚀 REVERS Engine запуск...');
-    
-    await swarmManager.start(identity);
-    
-    // Проброс signalling для звонков
-    swarmManager.onMessage((msg) => {
-      if (msg.type === 'call-offer' || msg.type === 'call-answer' || msg.type === 'ice' || msg.type === 'call-end') {
-        callManager.handleSignaling(msg.from || msg.peerId, msg);
-      } else {
-        messageHandler.handleIncoming(msg);
+  start() {
+    console.log('🚀 P2P Network запущен. Мой ID:', identity.id);
+    console.log('📋 Обменяйтесь ID с собеседником для подключения');
+  }
+
+  // Я инициирую соединение
+  async connectToPeer(peerId) {
+    if (this.peers.has(peerId)) {
+      console.log('Уже подключены к', peerId);
+      return;
+    }
+
+    try {
+      const SimplePeer = (await import('simple-peer')).default;
+      
+      const peer = new SimplePeer({
+        initiator: true,
+        trickle: true,
+        config: this.rtcConfig
+      });
+
+      this._setupPeer(peer, peerId);
+
+      peer.on('signal', (signalData) => {
+        console.log('📤 Сигнал для', peerId, '— передайте его собеседнику');
+        // Сохраняем сигнал — UI должен передать его другому пользователю
+        this.pendingSignals.push({ peerId, signal: signalData, type: 'offer' });
+        if (this.onMessageCallback) {
+          this.onMessageCallback({
+            type: 'p2p-signal',
+            from: identity.id,
+            to: peerId,
+            signal: signalData,
+            initiator: true
+          });
+        }
+      });
+
+    } catch (e) {
+      console.error('Ошибка создания пира:', e);
+    }
+  }
+
+  // Принимаю входящее соединение
+  async acceptPeer(peerId, signalData) {
+    if (this.peers.has(peerId)) return;
+
+    try {
+      const SimplePeer = (await import('simple-peer')).default;
+      
+      const peer = new SimplePeer({
+        initiator: false,
+        trickle: true,
+        config: this.rtcConfig
+      });
+
+      this._setupPeer(peer, peerId);
+      
+      peer.on('signal', (answerSignal) => {
+        console.log('📤 Ответный сигнал для', peerId);
+        if (this.onMessageCallback) {
+          this.onMessageCallback({
+            type: 'p2p-signal',
+            from: identity.id,
+            to: peerId,
+            signal: answerSignal,
+            initiator: false
+          });
+        }
+      });
+
+      peer.signal(signalData);
+    } catch (e) {
+      console.error('Ошибка принятия пира:', e);
+    }
+  }
+
+  // Применить сигнал от собеседника
+  applySignal(peerId, signalData) {
+    const peer = this.peers.get(peerId);
+    if (peer) {
+      try {
+        peer.signal(signalData);
+      } catch (e) {
+        console.error('Ошибка применения сигнала:', e);
+      }
+    }
+  }
+
+  _setupPeer(peer, peerId) {
+    let connected = false;
+
+    peer.on('connect', () => {
+      connected = true;
+      console.log('🔗 P2P соединение установлено с', peerId);
+      
+      this.peers.set(peerId, { peer, connected: true });
+      
+      if (this.onPeerCallback) {
+        this.onPeerCallback({ type: 'connected', peerId });
+      }
+
+      // Отправляем приветствие с профилем
+      peer.send(JSON.stringify({
+        type: 'hello',
+        profile: identity.getProfile()
+      }));
+    });
+
+    peer.on('data', (data) => {
+      try {
+        const msg = JSON.parse(data.toString());
+        if (this.onMessageCallback) {
+          this.onMessageCallback({ ...msg, from: peerId });
+        }
+      } catch (e) {
+        console.error('Ошибка парсинга данных:', e);
       }
     });
 
-    this.ready = true;
-    if (this._onReady) this._onReady();
-    console.log('✅ REVERS Engine готов');
+    peer.on('close', () => {
+      console.log('🔌 Соединение закрыто с', peerId);
+      this.peers.delete(peerId);
+      if (this.onPeerCallback && connected) {
+        this.onPeerCallback({ type: 'disconnected', peerId });
+      }
+    });
+
+    peer.on('error', (err) => {
+      console.error('Ошибка пира', peerId, ':', err.message);
+      this.peers.delete(peerId);
+      if (this.onPeerCallback && connected) {
+        this.onPeerCallback({ type: 'disconnected', peerId });
+      }
+    });
   }
 
-  // Профиль
-  getMyId() { return identity.id; }
-  getMyProfile() { return identity.getProfile(); }
-  setName(name) { identity.setName(name); }
-  setAvatar(b64) { identity.setAvatar(b64); }
+  sendToPeer(peerId, data) {
+    const entry = this.peers.get(peerId);
+    if (entry && entry.connected) {
+      try {
+        entry.peer.send(JSON.stringify(data));
+        return true;
+      } catch (e) {
+        console.error('Ошибка отправки:', e);
+        return false;
+      }
+    }
+    console.log('Нет соединения с', peerId, '— попробуйте подключиться');
+    return false;
+  }
 
-  // Сообщения
-  sendMessage(peerId, text) { return messageHandler.sendMessage(peerId, text); }
-  sendFile(peerId, file) { return messageHandler.sendFile(peerId, file); }
-  getChatHistory(peerId) { return messageHandler.getChatHistory(peerId); }
-  getAllChats() { return messageHandler.getAllChats(); }
+  isConnected(peerId) {
+    const entry = this.peers.get(peerId);
+    return entry ? entry.connected : false;
+  }
 
-  // Группы
-  createGroup(name) { return messageHandler.createGroup(name); }
-  sendGroupMessage(key, text) { return messageHandler.sendGroupMessage(key, text); }
-  getGroupHistory(key) { return messageHandler.getGroupHistory(key); }
+  getConnectedPeers() {
+    const connected = [];
+    this.peers.forEach((entry, peerId) => {
+      if (entry.connected) connected.push(peerId);
+    });
+    return connected;
+  }
 
-  // Каналы
-  createChannel(name) { return messageHandler.createChannel(name); }
-  sendChannelMessage(key, text) { return messageHandler.sendChannelMessage(key, text); }
-  getChannelHistory(key) { return messageHandler.getChannelHistory(key); }
+  onMessage(cb) { this.onMessageCallback = cb; }
+  onPeerEvent(cb) { this.onPeerCallback = cb; }
 
-  // Звонки
-  async startCall(peerId, video = true) { return await callManager.startCall(peerId, video); }
-  async acceptCall(peerId, video = true) { return await callManager.acceptCall(peerId, video); }
-  endCall(peerId) { callManager.endCall(peerId); }
-  toggleAudio(peerId) { callManager.toggleAudio(peerId); }
-  toggleVideo(peerId) { callManager.toggleVideo(peerId); }
-
-  // Колбэки
-  onMessage(cb) { messageHandler.setOnMessage(cb); }
-  onChatUpdate(cb) { messageHandler.setOnChatUpdate(cb); }
-  onIncomingCall(cb) { callManager.onIncoming(cb); }
-  onRemoteStream(cb) { callManager.onStream(cb); }
-  onCallEnded(cb) { callManager.onEnd(cb); }
-  onReady(cb) { this._onReady = cb; if (this.ready) cb(); }
-
-  shutdown() {
-    callManager.endAllCalls();
-    swarmManager.stop();
+  stop() {
+    this.peers.forEach((entry) => {
+      try { entry.peer.destroy(); } catch (e) {}
+    });
+    this.peers.clear();
   }
 }
 
-const engine = new P2PEngine();
-export default engine;
+export default new P2PNetwork();
