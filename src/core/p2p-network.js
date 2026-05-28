@@ -1,4 +1,4 @@
-// p2p-network.js — P2P сеть через simple-peer (WebRTC)
+// p2p-network.js — нативный WebRTC (работает в WebView без зависимостей)
 
 import identity from './identity.js';
 
@@ -7,12 +7,10 @@ class P2PNetwork {
     this.peers = new Map();
     this.onMessageCallback = null;
     this.onPeerCallback = null;
-    this.pendingSignals = [];
     this.rtcConfig = {
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' }
+        { urls: 'stun:stun1.l.google.com:19302' }
       ]
     };
   }
@@ -22,154 +20,183 @@ class P2PNetwork {
   }
 
   async connectToPeer(peerId) {
-    if (this.peers.has(peerId)) {
-      console.log('Уже подключены к', peerId);
-      return;
-    }
+    if (this.peers.has(peerId)) return;
 
-    try {
-      const SimplePeer = (await import('simple-peer')).default;
-      
-      const peer = new SimplePeer({
-        initiator: true,
-        trickle: true,
-        config: this.rtcConfig
-      });
+    const pc = new RTCPeerConnection(this.rtcConfig);
+    const dc = pc.createDataChannel('chat');
+    
+    this._setupDataChannel(dc, peerId);
+    this._setupPeerConnection(pc, peerId);
 
-      this._setupPeer(peer, peerId);
+    pc.onicecandidate = (e) => {
+      if (e.candidate && this.onMessageCallback) {
+        this.onMessageCallback({
+          type: 'p2p-signal',
+          from: identity.id,
+          to: peerId,
+          signal: { candidate: e.candidate },
+          initiator: true
+        });
+      }
+    };
 
-      peer.on('signal', (signalData) => {
-        console.log('📤 Сигнал для', peerId);
-        this.pendingSignals.push({ peerId, signal: signalData, type: 'offer' });
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    
+    pc.onicegatheringstatechange = () => {
+      if (pc.iceGatheringState === 'complete') {
         if (this.onMessageCallback) {
           this.onMessageCallback({
             type: 'p2p-signal',
             from: identity.id,
             to: peerId,
-            signal: signalData,
+            signal: { sdp: pc.localDescription },
             initiator: true
           });
         }
-      });
+      }
+    };
 
-    } catch (e) {
-      console.error('Ошибка создания пира:', e);
-    }
+    this.peers.set(peerId, { pc, dc, connected: false });
   }
 
   async acceptPeer(peerId, signalData) {
     if (this.peers.has(peerId)) return;
 
-    try {
-      const SimplePeer = (await import('simple-peer')).default;
-      
-      const peer = new SimplePeer({
-        initiator: false,
-        trickle: true,
-        config: this.rtcConfig
-      });
+    const pc = new RTCPeerConnection(this.rtcConfig);
+    this._setupPeerConnection(pc, peerId);
 
-      this._setupPeer(peer, peerId);
+    pc.ondatachannel = (e) => {
+      this._setupDataChannel(e.channel, peerId);
+    };
+
+    pc.onicecandidate = (e) => {
+      if (e.candidate && this.onMessageCallback) {
+        this.onMessageCallback({
+          type: 'p2p-signal',
+          from: identity.id,
+          to: peerId,
+          signal: { candidate: e.candidate },
+          initiator: false
+        });
+      }
+    };
+
+    if (signalData.sdp) {
+      await pc.setRemoteDescription(new RTCSessionDescription(signalData.sdp));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
       
-      peer.on('signal', (answerSignal) => {
-        if (this.onMessageCallback) {
-          this.onMessageCallback({
-            type: 'p2p-signal',
-            from: identity.id,
-            to: peerId,
-            signal: answerSignal,
-            initiator: false
-          });
+      pc.onicegatheringstatechange = () => {
+        if (pc.iceGatheringState === 'complete') {
+          if (this.onMessageCallback) {
+            this.onMessageCallback({
+              type: 'p2p-signal',
+              from: identity.id,
+              to: peerId,
+              signal: { sdp: pc.localDescription },
+              initiator: false
+            });
+          }
         }
-      });
-
-      peer.signal(signalData);
-    } catch (e) {
-      console.error('Ошибка принятия пира:', e);
+      };
     }
+
+    if (signalData.candidate) {
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(signalData.candidate));
+      } catch (e) {
+        console.error('ICE error:', e);
+      }
+    }
+
+    this.peers.set(peerId, { pc, dc: null, connected: false });
   }
 
   applySignal(peerId, signalData) {
-    const peer = this.peers.get(peerId);
-    if (peer) {
-      try {
-        peer.signal(signalData);
-      } catch (e) {
-        console.error('Ошибка применения сигнала:', e);
-      }
+    const entry = this.peers.get(peerId);
+    if (!entry) return;
+
+    const { pc } = entry;
+
+    if (signalData.sdp) {
+      pc.setRemoteDescription(new RTCSessionDescription(signalData.sdp))
+        .then(() => {
+          if (signalData.sdp.type === 'offer') {
+            return pc.createAnswer().then(answer => pc.setLocalDescription(answer));
+          }
+        })
+        .catch(e => console.error('SDP error:', e));
+    }
+
+    if (signalData.candidate) {
+      pc.addIceCandidate(new RTCIceCandidate(signalData.candidate))
+        .catch(e => console.error('ICE error:', e));
     }
   }
 
-  _setupPeer(peer, peerId) {
-    let connected = false;
-
-    peer.on('connect', () => {
-      connected = true;
-      console.log('🔗 P2P соединение установлено с', peerId);
-      
-      this.peers.set(peerId, peer);
-      
-      if (this.onPeerCallback) {
-        this.onPeerCallback({ type: 'connected', peerId });
+  _setupPeerConnection(pc, peerId) {
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === 'connected') {
+        const entry = this.peers.get(peerId);
+        if (entry) entry.connected = true;
+        
+        if (this.onPeerCallback) {
+          this.onPeerCallback({ type: 'connected', peerId });
+        }
+      } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+        this.peers.delete(peerId);
+        if (this.onPeerCallback) {
+          this.onPeerCallback({ type: 'disconnected', peerId });
+        }
       }
+    };
+  }
 
-      peer.send(JSON.stringify({
+  _setupDataChannel(dc, peerId) {
+    dc.onopen = () => {
+      console.log('📡 DataChannel открыт с', peerId);
+      
+      dc.send(JSON.stringify({
         type: 'hello',
         profile: identity.getProfile()
       }));
-    });
+    };
 
-    peer.on('data', (data) => {
+    dc.onmessage = (e) => {
       try {
-        const msg = JSON.parse(data.toString());
+        const msg = JSON.parse(e.data);
         if (this.onMessageCallback) {
           this.onMessageCallback({ ...msg, from: peerId });
         }
-      } catch (e) {
-        console.error('Ошибка парсинга:', e);
+      } catch (err) {
+        console.error('Ошибка парсинга:', err);
       }
-    });
+    };
 
-    peer.on('close', () => {
-      console.log('🔌 Соединение закрыто с', peerId);
-      this.peers.delete(peerId);
-      if (this.onPeerCallback && connected) {
-        this.onPeerCallback({ type: 'disconnected', peerId });
-      }
-    });
-
-    peer.on('error', (err) => {
-      console.error('Ошибка пира:', err.message);
-      this.peers.delete(peerId);
-      if (this.onPeerCallback && connected) {
-        this.onPeerCallback({ type: 'disconnected', peerId });
-      }
-    });
+    dc.onclose = () => {
+      console.log('📡 DataChannel закрыт с', peerId);
+    };
   }
 
   sendToPeer(peerId, data) {
-    const peer = this.peers.get(peerId);
-    if (peer && peer.connected) {
-      try {
-        peer.send(JSON.stringify(data));
-        return true;
-      } catch (e) {
-        console.error('Ошибка отправки:', e);
-        return false;
-      }
+    const entry = this.peers.get(peerId);
+    if (entry && entry.dc && entry.dc.readyState === 'open') {
+      entry.dc.send(JSON.stringify(data));
+      return true;
     }
     return false;
   }
 
   isConnected(peerId) {
-    const peer = this.peers.get(peerId);
-    return peer ? peer.connected : false;
+    const entry = this.peers.get(peerId);
+    return entry ? entry.connected : false;
   }
 
   getConnectedPeers() {
     const connected = [];
-    this.peers.forEach((peer, peerId) => {
-      if (peer.connected) connected.push(peerId);
+    this.peers.forEach((entry, peerId) => {
+      if (entry.connected) connected.push(peerId);
     });
     return connected;
   }
@@ -178,8 +205,8 @@ class P2PNetwork {
   onPeerEvent(cb) { this.onPeerCallback = cb; }
 
   stop() {
-    this.peers.forEach((peer) => {
-      try { peer.destroy(); } catch (e) {}
+    this.peers.forEach((entry) => {
+      try { entry.pc.close(); } catch (e) {}
     });
     this.peers.clear();
   }
