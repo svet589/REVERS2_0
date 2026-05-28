@@ -2,12 +2,5 @@
   "appId": "com.revers.messenger",
   "appName": "REVERS",
   "webDir": "src",
-  "bundledWebRuntime": false,
-  "plugins": {
-    "Camera": {
-      "android": {
-        "usageDescription": "REVERS нужен доступ к камере для сканирования QR-кодов и видеозвонков"
-      }
-    }
-  }
+  "bundledWebRuntime": false
 }
