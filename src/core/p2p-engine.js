@@ -1,7 +1,6 @@
-// p2p-engine.js — главный API, собирает всё ядро воедино
+// p2p-engine.js — главный API без заглушек
 
 import identity from './identity.js';
-import cryptoModule from './crypto-module.js';
 import swarmManager from './swarm-manager.js';
 import messageHandler from './message-handler.js';
 import callManager from './call-manager.js';
@@ -9,208 +8,70 @@ import callManager from './call-manager.js';
 class P2PEngine {
   constructor() {
     this.ready = false;
-    this.onReadyCallback = null;
+    this._onReady = null;
   }
 
-  // ============ ИНИЦИАЛИЗАЦИЯ ============
-
   async init() {
-    console.log('🚀 REVERS Engine запускается...');
+    console.log('🚀 REVERS Engine запуск...');
     
-    // 1. Загружаем профиль
-    const profile = identity.getProfile();
-    console.log('👤 Профиль:', profile.id);
-
-    // 2. Запускаем P2P-сеть
     await swarmManager.start(identity);
     
-    // 3. Подписываемся на входящие сообщения
+    // Проброс signalling для звонков
     swarmManager.onMessage((msg) => {
-      messageHandler.handleIncoming(msg);
-    });
-
-    // 4. Подписываемся на peer-события
-    swarmManager.onPeerEvent((event) => {
-      if (event.type === 'connected') {
-        console.log('🟢 Пир подключился:', event.peerId);
-      } else if (event.type === 'disconnected') {
-        console.log('🔴 Пир отключился:', event.peerId);
-      }
-    });
-
-    // 5. Обработка signalling для звонков
-    swarmManager.onMessage((msg) => {
-      if (msg.data?.type === 'signaling') {
-        callManager.handleSignaling(msg.from, msg.data.callData);
-      }
-    });
-
-    // 6. Обработка incoming call
-    callManager.setOnIncomingCall((data) => {
-      if (this.onIncomingCall) {
-        this.onIncomingCall(data);
-      }
-    });
-
-    callManager.setOnCallEnded((data) => {
-      if (this.onCallEnded) {
-        this.onCallEnded(data);
-      }
-    });
-
-    callManager.setOnStreamReady((data) => {
-      if (this.onRemoteStream) {
-        this.onRemoteStream(data);
+      if (msg.type === 'call-offer' || msg.type === 'call-answer' || msg.type === 'ice' || msg.type === 'call-end') {
+        callManager.handleSignaling(msg.from || msg.peerId, msg);
+      } else {
+        messageHandler.handleIncoming(msg);
       }
     });
 
     this.ready = true;
-    console.log('✅ REVERS Engine готов!');
-    
-    if (this.onReadyCallback) this.onReadyCallback();
+    if (this._onReady) this._onReady();
+    console.log('✅ REVERS Engine готов');
   }
-
-  // ============ API ДЛЯ UI ============
 
   // Профиль
-  getMyId() {
-    return identity.id;
-  }
-
-  getMyProfile() {
-    return identity.getProfile();
-  }
-
-  setMyName(name) {
-    identity.setName(name);
-  }
-
-  setMyAvatar(base64) {
-    identity.setAvatar(base64);
-  }
+  getMyId() { return identity.id; }
+  getMyProfile() { return identity.getProfile(); }
+  setName(name) { identity.setName(name); }
+  setAvatar(b64) { identity.setAvatar(b64); }
 
   // Сообщения
-  sendMessage(peerId, text) {
-    return messageHandler.sendMessage(peerId, text);
-  }
-
-  sendFile(peerId, file) {
-    return messageHandler.sendFile(peerId, file);
-  }
-
-  getChatHistory(peerId) {
-    return messageHandler.getChatHistory(peerId);
-  }
-
-  getAllChats() {
-    return messageHandler.getAllChats();
-  }
-
-  onMessage(callback) {
-    messageHandler.setOnMessage(callback);
-  }
-
-  onChatUpdate(callback) {
-    messageHandler.setOnChatUpdate(callback);
-  }
+  sendMessage(peerId, text) { return messageHandler.sendMessage(peerId, text); }
+  sendFile(peerId, file) { return messageHandler.sendFile(peerId, file); }
+  getChatHistory(peerId) { return messageHandler.getChatHistory(peerId); }
+  getAllChats() { return messageHandler.getAllChats(); }
 
   // Группы
-  createGroup(name) {
-    return messageHandler.createGroup(name);
-  }
-
-  joinGroup(groupKey) {
-    messageHandler.joinGroup(groupKey);
-  }
-
-  sendGroupMessage(groupKey, text) {
-    return messageHandler.sendGroupMessage(groupKey, text);
-  }
-
-  getGroupHistory(groupKey) {
-    return messageHandler.getGroupHistory(groupKey);
-  }
+  createGroup(name) { return messageHandler.createGroup(name); }
+  sendGroupMessage(key, text) { return messageHandler.sendGroupMessage(key, text); }
+  getGroupHistory(key) { return messageHandler.getGroupHistory(key); }
 
   // Каналы
-  createChannel(name) {
-    return messageHandler.createChannel(name);
-  }
-
-  sendChannelMessage(channelKey, text) {
-    return messageHandler.sendChannelMessage(channelKey, text);
-  }
-
-  getChannelHistory(channelKey) {
-    return messageHandler.getChannelHistory(channelKey);
-  }
+  createChannel(name) { return messageHandler.createChannel(name); }
+  sendChannelMessage(key, text) { return messageHandler.sendChannelMessage(key, text); }
+  getChannelHistory(key) { return messageHandler.getChannelHistory(key); }
 
   // Звонки
-  async startCall(peerId, video = true) {
-    return await callManager.startCall(peerId, video);
-  }
+  async startCall(peerId, video = true) { return await callManager.startCall(peerId, video); }
+  async acceptCall(peerId, video = true) { return await callManager.acceptCall(peerId, video); }
+  endCall(peerId) { callManager.endCall(peerId); }
+  toggleAudio(peerId) { callManager.toggleAudio(peerId); }
+  toggleVideo(peerId) { callManager.toggleVideo(peerId); }
 
-  async answerCall(peerId, video = true) {
-    return await callManager.answerCall(peerId, video);
-  }
+  // Колбэки
+  onMessage(cb) { messageHandler.setOnMessage(cb); }
+  onChatUpdate(cb) { messageHandler.setOnChatUpdate(cb); }
+  onIncomingCall(cb) { callManager.onIncoming(cb); }
+  onRemoteStream(cb) { callManager.onStream(cb); }
+  onCallEnded(cb) { callManager.onEnd(cb); }
+  onReady(cb) { this._onReady = cb; if (this.ready) cb(); }
 
-  endCall(peerId) {
-    callManager.endCall(peerId);
-  }
-
-  toggleAudio(peerId) {
-    callManager.toggleAudio(peerId);
-  }
-
-  toggleVideo(peerId) {
-    callManager.toggleVideo(peerId);
-  }
-
-  onIncomingCall(callback) {
-    this.onIncomingCall = callback;
-  }
-
-  onCallEnded(callback) {
-    this.onCallEnded = callback;
-  }
-
-  onRemoteStream(callback) {
-    this.onRemoteStream = callback;
-  }
-
-  // Туннель (для будущих фич)
-  createTunnel(peerChain) {
-    return swarmManager.createTunnel(peerChain);
-  }
-
-  // Когда движок готов
-  onReady(callback) {
-    this.onReadyCallback = callback;
-    if (this.ready) callback();
-  }
-
-  // Стеганография (публичные методы)
-  async encodeStegano(imageBase64, text) {
-    return await cryptoModule.encodeStegano(imageBase64, text);
-  }
-
-  async decodeStegano(imageBase64) {
-    return await cryptoModule.decodeStegano(imageBase64);
-  }
-
-  // Выключение
-  async shutdown() {
+  shutdown() {
     callManager.endAllCalls();
-    await swarmManager.stop();
-    console.log('REVERS Engine остановлен');
+    swarmManager.stop();
   }
 }
 
-// Экспортируем синглтон
-const p2pEngine = new P2PEngine();
-
-// Делаем доступным глобально для UI
-if (typeof window !== 'undefined') {
-  window.REVERS = p2pEngine;
-}
-
-export default p2pEngine;
+const engine = new P2PEngine();
+export default engine;
