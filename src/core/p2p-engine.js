@@ -1,29 +1,26 @@
 import identity from './identity.js';
 import p2pNetwork from './p2p-network.js';
-import cryptoModule from './crypto-module.js';
 import messageHandler from './message-handler.js';
 import callManager from './call-manager.js';
+import groupManager from './group-manager.js';
 
 class P2PEngine {
   constructor() {
     this.ready = false;
     this._onReady = null;
-    this.p2pNetwork = p2pNetwork; // Для доступа из app.js
+    this.p2pNetwork = p2pNetwork;
   }
 
   async init() {
     console.log('╔══════════════════════════╗');
-    console.log('║   REVERS ENGINE v1.0    ║');
+    console.log('║   REVERS ENGINE v1.3          ║');
     console.log('╚══════════════════════════╝');
     p2pNetwork.start();
     p2pNetwork.onMessage((msg) => {
-      switch(msg.type) {
-        case 'call-signal': callManager.handleSignal(msg.from, msg); break;
-        case 'p2p-signal': messageHandler.handleIncoming(msg); break;
-        default: messageHandler.handleIncoming(msg); break;
-      }
+      if (msg.type === 'call-signal') callManager.handleSignal(msg.from, msg);
+      else if (msg.type === 'p2p-signal') messageHandler.handleIncoming(msg);
+      else messageHandler.handleIncoming(msg);
     });
-    p2pNetwork.onPeerEvent((event) => { console.log(`🔵 Пир ${event.peerId}: ${event.type}`); });
     this.ready = true;
     console.log('✅ Engine готов. Мой ID:', identity.id);
     if (this._onReady) this._onReady();
@@ -31,38 +28,35 @@ class P2PEngine {
 
   getMyId() { return identity.id; }
   getMyProfile() { return identity.getProfile(); }
-  setName(name) { identity.setName(name); }
-  setAvatar(b64) { identity.setAvatar(b64); }
+  setName(n) { identity.setName(n); }
+  setAvatar(b) { identity.setAvatar(b); }
 
-  connectToPeer(peerId) { return p2pNetwork.connectToPeer(peerId); }
-  acceptPeer(peerId, signal) { return p2pNetwork.acceptPeer(peerId, signal); }
-  applySignal(peerId, signal) { return p2pNetwork.applySignal(peerId, signal); }
-  isConnected(peerId) { return p2pNetwork.isConnected(peerId); }
-  getConnectedPeers() { return p2pNetwork.getConnectedPeers(); }
+  connectToPeer(id) { return p2pNetwork.connectToPeer(id); }
+  acceptPeer(id, s) { return p2pNetwork.acceptPeer(id, s); }
+  applySignal(id, s) { return p2pNetwork.applySignal(id, s); }
+  isConnected(id) { return p2pNetwork.isConnected(id); }
 
-  sendMessage(peerId, text) { return messageHandler.sendMessage(peerId, text); }
-  sendFile(peerId, file) { return messageHandler.sendFile(peerId, file); }
-  sendVoice(peerId, audio, duration) { return messageHandler.sendVoice(peerId, audio, duration); }
+  sendMessage(id, t) { return messageHandler.sendMessage(id, t); }
+  sendFile(id, f) { return messageHandler.sendFile(id, f); }
+  sendVoice(id, a, d) { return messageHandler.sendVoice(id, a, d); }
   async recordVoice() { return await messageHandler.recordVoice(); }
-  getChatHistory(peerId) { return messageHandler.getChatHistory(peerId); }
-  getAllChats() { return messageHandler.getAllChats(); }
+  async getChatHistory(id) { return await messageHandler.getChatHistory(id); }
+  async getAllChats() { return await messageHandler.getAllChats(); }
+  async clearChatHistory(id) { return await messageHandler.clearChatHistory(id); }
 
-  createGroup(name) { return messageHandler.createGroup(name); }
-  sendGroupMessage(key, text) { return messageHandler.sendGroupMessage(key, text); }
-  getGroupHistory(key) { return messageHandler.getGroupHistory(key); }
+  createGroup(n, t = 'chat') { return groupManager.createGroup(n, t); }
+  sendGroupMessage(k, t) { return groupManager.sendGroupMessage(k, t); }
+  getGroupHistory(k) { return groupManager.groups.get(k)?.history || []; }
 
-  createChannel(name) { return messageHandler.createChannel(name); }
-  sendChannelMessage(key, text) { return messageHandler.sendChannelMessage(key, text); }
-  getChannelHistory(key) { return messageHandler.getChannelHistory(key); }
+  createChannel(n) { return messageHandler.createChannel(n); }
+  sendChannelMessage(k, t) { return messageHandler.sendChannelMessage(k, t); }
+  getChannelHistory(k) { return messageHandler.getChannelHistory(k); }
 
-  async startCall(peerId, video = true) { return await callManager.startCall(peerId, video); }
-  async acceptCall(peerId, video = true) { return await callManager.acceptCall(peerId, video); }
-  endCall(peerId) { callManager.endCall(peerId); }
-  toggleAudio(peerId) { callManager.toggleAudio(peerId); }
-  toggleVideo(peerId) { callManager.toggleVideo(peerId); }
-
-  encodeStegano(img, text) { return cryptoModule.encodeStegano(img, text); }
-  decodeStegano(img) { return cryptoModule.decodeStegano(img); }
+  async startCall(id, v = true) { return await callManager.startCall(id, v); }
+  async acceptCall(id, v = true) { return await callManager.acceptCall(id, v); }
+  endCall(id) { callManager.endCall(id); }
+  toggleAudio(id) { callManager.toggleAudio(id); }
+  toggleVideo(id) { callManager.toggleVideo(id); }
 
   onMessage(cb) { messageHandler.setOnMessage(cb); }
   onChatUpdate(cb) { messageHandler.setOnChatUpdate(cb); }
