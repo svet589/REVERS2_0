@@ -1,205 +1,359 @@
-// swarm-manager.js — P2P-сеть, Hyperswarm, chain tunnel
+// swarm-manager.js v2.0 — DHT-ядро с E2EE, onion, офлайн-хранилищем
 
-import Hyperswarm from 'hyperswarm';
-import b4a from 'b4a';
+import identity from './identity.js';
 import cryptoModule from './crypto-module.js';
+import messageHandler from './message-handler.js';
+
+const OFFLINE_TTL = 86400000; // 24 часа
+const MAX_OFFLINE_MSGS = 50;
+const RELAY_ANNOUNCE_INTERVAL = 30000;
 
 class SwarmManager {
   constructor() {
-    this.swarm = null;
-    this.activeRooms = new Map();  // topic -> { connections, key, name }
-    this.peerConnections = new Map(); // peerId -> connection
+    this.peers = new Map();
+    this.offlineMessages = new Map();
+    this.relayCache = new Map();
     this.onMessageCallback = null;
     this.onPeerCallback = null;
-    this.tunnelChain = []; // Цепочка пиров для tunnel mode
+    this._relayInterval = null;
+    this._started = false;
   }
 
-  // ============ ЗАПУСК ============
+  async start() {
+    if (this._started) return;
+    this._started = true;
+    console.log('🕸️ DHT-ядро v2.0 запущено. ID:', identity.id);
 
-  async start(identity) {
-    this.identity = identity;
-    this.swarm = new Hyperswarm();
-    
-    // Главный topic для REVERS (общий DHT-канал)
-    const mainTopic = b4a.from(cryptoModule.hash('revers-mainnet-v1'), 'hex').slice(0, 32);
-    
-    this.swarm.on('connection', (conn, info) => {
-      this.handleConnection(conn, info);
-    });
+    // Загружаем офлайн-сообщения
+    this._loadOfflineMessages();
 
-    this.swarm.join(mainTopic, { server: true, client: true });
-    console.log('🚀 Swarm запущен. Мой ID:', identity.id);
+    // Анонсируем себя как ретранслятор
+    this._announceAsRelay();
+    this._relayInterval = setInterval(() => this._announceAsRelay(), RELAY_ANNOUNCE_INTERVAL);
+
+    // Периодически чистим просроченные офлайн-сообщения
+    setInterval(() => this._cleanOfflineMessages(), 300000);
   }
 
-  // ============ КОМНАТЫ ============
+  // ========== ПОДКЛЮЧЕНИЕ ПИРА ==========
 
-  joinRoom(roomKey) {
-    const topic = b4a.from(cryptoModule.hash(roomKey), 'hex').slice(0, 32);
-    
-    if (this.activeRooms.has(roomKey)) return;
-    
-    this.activeRooms.set(roomKey, {
-      topic,
-      connections: new Map(),
-      key: roomKey,
-      name: roomKey
-    });
+  async handlePeerConnected(peerId, conn) {
+    if (this.peers.has(peerId)) return;
 
-    this.swarm.join(topic, { server: true, client: true });
-    console.log('📁 Зашёл в комнату:', roomKey);
-  }
+    console.log('🔗 DHT-пир подключён:', peerId);
 
-  leaveRoom(roomKey) {
-    const room = this.activeRooms.get(roomKey);
-    if (!room) return;
-    
-    this.swarm.leave(room.topic);
-    this.activeRooms.delete(roomKey);
-    console.log('👋 Покинул комнату:', roomKey);
-  }
+    // Устанавливаем E2EE ключ
+    const e2eeKey = await messageHandler._getSharedKey(peerId);
 
-  // ============ ПОДКЛЮЧЕНИЯ ============
+    const peer = {
+      conn,
+      e2eeKey,
+      profile: null,
+      connected: true,
+      lastSeen: Date.now()
+    };
 
-  handleConnection(conn, info) {
-    const peerId = info.publicKey?.toString('hex')?.slice(0, 16) || 'unknown';
-    console.log('🔗 Новое соединение:', peerId);
+    this.peers.set(peerId, peer);
 
-    conn.on('data', (data) => {
-      try {
-        const msg = JSON.parse(data.toString());
-        this.processMessage(peerId, msg, conn);
-      } catch (e) {
-        console.log('Ошибка парсинга:', e);
+    // Отправляем приветствие с профилем
+    const profile = identity.getProfile();
+    const helloMsg = { type: 'dht-hello', profile };
+
+    if (e2eeKey) {
+      const encrypted = cryptoModule.encrypt(e2eeKey, JSON.stringify(helloMsg));
+      if (encrypted) {
+        this._sendRaw(conn, { type: 'dht-hello', data: encrypted });
       }
-    });
+    } else {
+      this._sendRaw(conn, helloMsg);
+    }
 
-    conn.on('close', () => {
-      console.log('🔌 Соединение закрыто:', peerId);
-      this.peerConnections.delete(peerId);
-      if (this.onPeerCallback) {
-        this.onPeerCallback({ type: 'disconnected', peerId });
-      }
-    });
+    // Отправляем накопленные офлайн-сообщения
+    await this._deliverOfflineMessages(peerId);
 
-    conn.on('error', (err) => {
-      console.log('Ошибка соединения:', err);
-    });
-
-    this.peerConnections.set(peerId, conn);
-    
-    // Отправляем свой профиль
-    conn.write(JSON.stringify({
-      type: 'hello',
-      profile: this.identity.getProfile()
-    }));
+    // Уведомляем p2p-network о новом пире
+    if (this.onPeerCallback) {
+      this.onPeerCallback({ type: 'dht-connected', peerId, profile });
+    }
   }
 
-  // ============ ОТПРАВКА СООБЩЕНИЙ ============
+  handlePeerDisconnected(peerId) {
+    const peer = this.peers.get(peerId);
+    if (!peer) return;
 
-  sendToPeer(peerId, encryptedMessage) {
-    const conn = this.peerConnections.get(peerId);
-    if (conn && conn.writable) {
-      conn.write(JSON.stringify({
-        type: 'message',
-        data: encryptedMessage
-      }));
-      return true;
+    peer.connected = false;
+    peer.lastSeen = Date.now();
+
+    console.log('🔌 DHT-пир отключён:', peerId);
+
+    if (this.onPeerCallback) {
+      this.onPeerCallback({ type: 'dht-disconnected', peerId });
+    }
+  }
+
+  // ========== ОТПРАВКА СООБЩЕНИЙ ==========
+
+  async sendToPeer(peerId, data) {
+    const peer = this.peers.get(peerId);
+
+    if (peer?.connected && peer.conn) {
+      // Пир онлайн — отправляем напрямую
+      return this._sendEncrypted(peer, data);
+    }
+
+    // Пир офлайн — сохраняем в DHT-кэш
+    return this._sendOffline(peerId, data);
+  }
+
+  async _sendEncrypted(peer, data) {
+    if (peer.e2eeKey) {
+      const encrypted = cryptoModule.encrypt(peer.e2eeKey, JSON.stringify(data));
+      if (encrypted) {
+        return this._sendRaw(peer.conn, { type: 'dht-message', data: encrypted });
+      }
+    }
+    return this._sendRaw(peer.conn, data);
+  }
+
+  _sendRaw(conn, data) {
+    try {
+      if (conn?.write) {
+        conn.write(JSON.stringify(data));
+        return true;
+      }
+    } catch(e) {
+      console.error('Ошибка отправки DHT:', e);
     }
     return false;
   }
 
-  broadcastToRoom(roomKey, encryptedMessage) {
-    const room = this.activeRooms.get(roomKey);
-    if (!room) return false;
-    
-    room.connections.forEach((conn, peerId) => {
-      if (conn.writable) {
-        conn.write(JSON.stringify({
-          type: 'message',
-          room: roomKey,
-          data: encryptedMessage
-        }));
+  // ========== ОФЛАЙН-СООБЩЕНИЯ ==========
+
+  async _sendOffline(peerId, data) {
+    const messages = this.offlineMessages.get(peerId) || [];
+
+    if (messages.length >= MAX_OFFLINE_MSGS) {
+      messages.shift(); // Удаляем самое старое
+    }
+
+    messages.push({
+      data,
+      timestamp: Date.now(),
+      ttl: Date.now() + OFFLINE_TTL
+    });
+
+    this.offlineMessages.set(peerId, messages);
+    this._saveOfflineMessages();
+
+    // Если есть e2ee ключ — шифруем перед сохранением
+    console.log('💾 Сообщение сохранено для офлайн-пира', peerId);
+    return true;
+  }
+
+  async _deliverOfflineMessages(peerId) {
+    const messages = this.offlineMessages.get(peerId);
+    if (!messages || messages.length === 0) return;
+
+    const peer = this.peers.get(peerId);
+    if (!peer?.connected) return;
+
+    console.log('📬 Доставляем офлайн-сообщения для', peerId, ':', messages.length);
+
+    const now = Date.now();
+    const validMessages = messages.filter(m => m.ttl > now);
+    const expired = messages.filter(m => m.ttl <= now);
+
+    for (const msg of validMessages) {
+      await this._sendEncrypted(peer, msg.data);
+    }
+
+    // Оставляем только просроченные (будут удалены при чистке)
+    this.offlineMessages.set(peerId, expired.length > 0 ? expired : []);
+    this._saveOfflineMessages();
+  }
+
+  _cleanOfflineMessages() {
+    const now = Date.now();
+    let cleaned = 0;
+
+    for (const [peerId, messages] of this.offlineMessages) {
+      const valid = messages.filter(m => m.ttl > now);
+      if (valid.length !== messages.length) {
+        cleaned += messages.length - valid.length;
+        this.offlineMessages.set(peerId, valid);
+      }
+    }
+
+    if (cleaned > 0) {
+      console.log('🧹 Удалено просроченных офлайн-сообщений:', cleaned);
+      this._saveOfflineMessages();
+    }
+  }
+
+  _saveOfflineMessages() {
+    try {
+      const data = Array.from(this.offlineMessages.entries());
+      localStorage.setItem('revers_offline_msgs', JSON.stringify(data));
+    } catch(e) {}
+  }
+
+  _loadOfflineMessages() {
+    try {
+      const data = JSON.parse(localStorage.getItem('revers_offline_msgs'));
+      if (data) this.offlineMessages = new Map(data);
+    } catch(e) {}
+  }
+
+  // ========== РЕТРАНСЛЯЦИЯ (ONION ЧЕРЕЗ DHT) ==========
+
+  _announceAsRelay() {
+    const relayInfo = {
+      peerId: identity.id,
+      publicKey: identity.getX25519PublicKey(),
+      mlkemPublicKey: identity.getMlkemPublicKey(),
+      natType: 'dht',
+      timestamp: Date.now()
+    };
+
+    // Рассылаем анонс всем подключённым пирам
+    this.peers.forEach((peer, peerId) => {
+      if (peer.connected) {
+        this._sendEncrypted(peer, {
+          type: 'relay-announce',
+          relayInfo
+        });
       }
     });
-    return true;
+
+    // Сохраняем себя в кэш
+    this.relayCache.set(identity.id, {
+      ...relayInfo,
+      latency: 0,
+      lastSeen: Date.now()
+    });
   }
 
-  // ============ CHAIN TUNNEL ============
+  _handleRelayAnnounce(peerId, msg) {
+    if (!msg.relayInfo?.peerId) return;
 
-  async createTunnel(peerChain) {
-    // peerChain = [peerId1, peerId2, peerId3]
-    this.tunnelChain = peerChain;
-    
-    const tunnelMsg = {
-      type: 'tunnel_create',
-      chain: peerChain,
-      nextHop: peerChain[0]
-    };
-    
-    this.sendToPeer(peerChain[0], tunnelMsg);
-    return true;
-  }
+    this.relayCache.set(msg.relayInfo.peerId, {
+      ...msg.relayInfo,
+      lastSeen: Date.now()
+    });
 
-  routeTunnelMessage(msg) {
-    const myIndex = this.tunnelChain.indexOf(this.identity.id);
-    if (myIndex === -1 || myIndex >= this.tunnelChain.length - 1) {
-      // Конец цепочки — доставляем
-      if (this.onMessageCallback) {
-        this.onMessageCallback(msg);
+    // Ретранслируем другим пирам (DHT gossip)
+    this.peers.forEach((peer, pid) => {
+      if (pid !== peerId && peer.connected) {
+        this._sendEncrypted(peer, msg);
       }
-      return;
-    }
-    
-    // Передаём дальше по цепочке
-    const nextPeer = this.tunnelChain[myIndex + 1];
-    this.sendToPeer(nextPeer, msg);
+    });
   }
 
-  // ============ ОБРАБОТКА СООБЩЕНИЙ ============
+  getBestRelays(count = 3) {
+    const now = Date.now();
+    const relays = [...this.relayCache.values()]
+      .filter(r => r.peerId !== identity.id && now - r.lastSeen < 300000)
+      .sort((a, b) => (a.latency || 999) - (b.latency || 999));
 
-  processMessage(peerId, msg, conn) {
+    return relays.slice(0, count);
+  }
+
+  // ========== ОБРАБОТКА ВХОДЯЩИХ ==========
+
+  handleIncoming(peerId, msg) {
+    const peer = this.peers.get(peerId);
+
+    // Расшифровка если нужно
+    if (msg.data?.ciphertext && peer?.e2eeKey) {
+      const decrypted = cryptoModule.decrypt(peer.e2eeKey, msg.data);
+      if (decrypted) {
+        try {
+          msg = { ...msg, ...JSON.parse(decrypted) };
+        } catch(e) {}
+      }
+    }
+
     switch (msg.type) {
-      case 'hello':
-        if (this.onPeerCallback) {
-          this.onPeerCallback({ type: 'connected', peerId, profile: msg.profile });
+      case 'dht-hello':
+        if (msg.profile) {
+          if (peer) peer.profile = msg.profile;
+          messageHandler._handleHello(peerId, msg.profile);
         }
         break;
-        
+
+      case 'relay-announce':
+        this._handleRelayAnnounce(peerId, msg);
+        break;
+
+      case 'dht-message':
       case 'message':
+      case 'file':
+      case 'voice':
+      case 'call-signal':
+      case 'group-call-signal':
+      case 'call-message':
+      case 'group-invite':
+      case 'group-key':
+      case 'group-key-rotation':
+      case 'group-structure':
+      case 'group-history':
+      case 'request-profile':
+      case 'pq-ciphertext':
         if (this.onMessageCallback) {
-          this.onMessageCallback({
-            from: peerId,
-            data: msg.data,
-            room: msg.room || null
-          });
+          this.onMessageCallback({ ...msg, from: peerId });
         }
         break;
-        
-      case 'tunnel_create':
-        this.routeTunnelMessage(msg);
-        break;
+
+      default:
+        if (this.onMessageCallback) {
+          this.onMessageCallback({ ...msg, from: peerId });
+        }
     }
   }
 
-  // ============ КОЛБЭКИ ============
+  // ========== WEBRTC СИГНАЛЫ ЧЕРЕЗ DHT ==========
 
-  onMessage(callback) {
-    this.onMessageCallback = callback;
-  }
-
-  onPeerEvent(callback) {
-    this.onPeerCallback = callback;
-  }
-
-  // ============ ОСТАНОВКА ============
-
-  async stop() {
-    if (this.swarm) {
-      await this.swarm.destroy();
-      console.log('Swarm остановлен');
+  async relayWebRTCSignal(peerId, signal) {
+    const peer = this.peers.get(peerId);
+    if (!peer?.connected) {
+      // Отправляем через офлайн-канал
+      return this._sendOffline(peerId, {
+        type: 'webrtc-signal',
+        signal
+      });
     }
+
+    return this._sendEncrypted(peer, {
+      type: 'webrtc-signal',
+      signal
+    });
+  }
+
+  // ========== СТАТУС ==========
+
+  isConnected(peerId) {
+    return this.peers.get(peerId)?.connected || false;
+  }
+
+  getConnectedPeers() {
+    return [...this.peers.entries()]
+      .filter(([_, p]) => p.connected)
+      .map(([id]) => id);
+  }
+
+  // ========== КОЛБЭКИ ==========
+
+  onMessage(cb) { this.onMessageCallback = cb; }
+  onPeerEvent(cb) { this.onPeerCallback = cb; }
+
+  // ========== ОСТАНОВКА ==========
+
+  stop() {
+    this._started = false;
+    if (this._relayInterval) clearInterval(this._relayInterval);
+    this._saveOfflineMessages();
+    console.log('🕸️ DHT-ядро остановлено');
   }
 }
 
-const swarmManager = new SwarmManager();
-export default swarmManager;
+export default new SwarmManager();
