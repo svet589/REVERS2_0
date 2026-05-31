@@ -1,19 +1,7 @@
 {
-  "name": "revers-messenger",
-  "version": "1.0.0",
-  "description": "P2P мессенджер",
-  "scripts": {
-    "build": "npx esbuild src/app.js --bundle --outfile=src/bundle.js --format=iife --platform=browser",
-    "apk": "npm run build && npx cap sync && cd android && ./gradlew assembleDebug"
-  },
   "dependencies": {
     "qrcode": "^1.5.3",
-    "html5-qrcode": "^2.3.8"
-  },
-  "devDependencies": {
-    "@capacitor/core": "^5.0.0",
-    "@capacitor/android": "^5.0.0",
-    "@capacitor/assets": "^3.0.0",
-    "esbuild": "^0.19.0"
+    "html5-qrcode": "^2.3.8",
+    "@capacitor/browser": "^5.0.0"
   }
 }
