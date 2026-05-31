@@ -57,6 +57,7 @@ class REVERSApp {
         <div class="chat-dropdown hidden" id="contactDropdown">
           <button class="dropdown-item" id="inviteToChatBtn">🔗 Пригласить</button>
           <button class="dropdown-item" id="searchInChatBtn">🔍 Поиск</button>
+          <button class="dropdown-item" id="channelSettingsBtn">⚙️ Настройки канала</button>
           <button class="dropdown-item" id="pinnedMsgBtn">📌 Закреп</button>
           <div class="dropdown-divider"></div>
           <button class="dropdown-item" id="callBtn">📹 Видеозвонок</button>
@@ -395,6 +396,7 @@ class REVERSApp {
     document.getElementById('themeToggle').addEventListener('click', () => this._toggleTheme());
     document.getElementById('soundToggle').addEventListener('click', () => this._toggleSound());
     document.getElementById('imageViewer').addEventListener('click', () => { document.getElementById('imageViewer').classList.remove('active'); });
+    document.getElementById('channelSettingsBtn')?.addEventListener('click', () => this._showChannelSettings());
   }
 
   _onReady() {
@@ -500,19 +502,61 @@ class REVERSApp {
   async _toggleVoiceRecord() { const btn = document.getElementById('voiceRecordBtn'); if (this.isRecording) { btn.textContent = '🎤 Голосовое'; this.isRecording = false; if (this.voiceRecorder) { const r = await this.voiceRecorder; if (r?.stop) { const audio = await new Promise(resolve => { r.recorder.onstop = () => { setTimeout(() => { const blob = new Blob(r.chunks || [], { type: 'audio/webm' }); const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.readAsDataURL(blob); }, 100); }; r.stop(); }); if (audio && this.currentChat) { const dur = Math.round((Date.now() - this.voiceStartTime) / 1000); const tid = this.currentChat.type === 'saved' ? 'me' : this.currentChat.id; REVERS.sendVoice(tid, audio, dur || 1); this._renderMessages(this.currentChat); this._renderChatsList(); } } this.voiceRecorder = null; } } else { try { const ts = await navigator.mediaDevices.getUserMedia({ audio: true }); ts.getTracks().forEach(t => t.stop()); } catch(e) { alert('❌ Нет доступа к микрофону'); return; } btn.textContent = '🔴 Запись...'; this.isRecording = true; this.voiceStartTime = Date.now(); this.voiceRecorder = REVERS.recordVoice(); } }
 
   _sendMessage() {
-    const input = document.getElementById('messageInput'); const text = input.value.trim();
-    if (!text || !this.currentChat) return;
-    if (this._editingMessage) { this._editingMessage.text = text; this._editingMessage.edited = true; this._editingMessage = null; }
-    else if (this._currentTopic) { groupManager.sendToTopic(this.currentChat.id, this._currentTopic, text); this._renderTopicMessages(); }
-    else if (this.currentChat.type === 'saved') REVERS.sendMessage('me', text);
-    else if (this.currentChat.type === 'group') REVERS.sendGroupMessage(this.currentChat.id, text);
-    else if (this.currentChat.type === 'channel') REVERS.sendChannelMessage(this.currentChat.id, text);
-    else REVERS.sendMessage(this.currentChat.id, text);
-    this._renderMessages(this.currentChat); input.value = ''; this.replyTo = null; document.getElementById('replyBar').classList.add('hidden'); this._renderChatsList();
+  const input = document.getElementById('messageInput');
+  const text = input.value.trim();
+  if (!text || !this.currentChat) return;
+  
+  if (this._editingMessage) {
+    this._editingMessage.text = text;
+    this._editingMessage.edited = true;
+    this._editingMessage = null;
+  } else if (this.currentChat.type === 'group') {
+    const g = groupManager.groups.get(this.currentChat.id);
+    if (g?.type === 'forum') {
+      if (this._currentTopic) {
+        groupManager.sendToTopic(this.currentChat.id, this._currentTopic, text);
+        this._renderTopicMessages();
+      } else {
+        // Авто-выбор общей темы
+        const general = g.topics.find(t => t.id === 'general');
+        if (general) {
+          groupManager.sendToTopic(this.currentChat.id, 'general', text);
+        } else {
+          groupManager.sendGroupMessage(this.currentChat.id, text);
+        }
+        this._renderMessages(this.currentChat);
+      }
+    } else {
+      REVERS.sendGroupMessage(this.currentChat.id, text);
+      this._renderMessages(this.currentChat);
+    }
+  } else if (this.currentChat.type === 'channel') {
+    REVERS.sendChannelMessage(this.currentChat.id, text);
+    this._renderMessages(this.currentChat);
+  } else if (this.currentChat.type === 'saved') {
+    REVERS.sendMessage('me', text);
+    this._renderMessages(this.currentChat);
+  } else {
+    REVERS.sendMessage(this.currentChat.id, text);
+    this._renderMessages(this.currentChat);
   }
-
+  
+  input.value = '';
+  this.replyTo = null;
+  document.getElementById('replyBar').classList.add('hidden');
+  this._renderChatsList();
+  }
+  
   _sendFile(file) { if (!this.currentChat) return; const tid = this.currentChat.type === 'saved' ? 'me' : this.currentChat.id; REVERS.sendFile(tid, file).then(() => { this._renderMessages(this.currentChat); }); }
-  _createGroup() { const n = document.getElementById('groupNameInput').value.trim(); const t = document.getElementById('groupTypeSelect')?.value || 'chat'; if (!n) return; const g = REVERS.createGroup(n, t); this._closeAllModals(); this._openChat({ id: g.key, name: (t === 'forum' ? '📂 ' : '👥 ') + n, type: 'group' }); document.getElementById('groupNameInput').value = ''; }
+  _createGroup() {
+  const n = document.getElementById('groupNameInput').value.trim();
+  const t = document.getElementById('groupTypeSelect')?.value || 'chat';
+  if (!n) return;
+  const g = REVERS.createGroup(n, t);
+  this._closeAllModals();
+  this._openChat({ id: g.key, name: (t === 'forum' ? '📂 ' : '👥 ') + n, type: 'group' });
+  document.getElementById('groupNameInput').value = '';
+  }
   _createChannel() { const n = document.getElementById('channelNameInput').value.trim(); if (!n) return; const k = REVERS.createChannel(n); this._closeAllModals(); this._openChat({ id: k, name: '📢 ' + n, type: 'channel' }); document.getElementById('channelNameInput').value = ''; }
 
   _showGroupSettings() {
@@ -546,7 +590,19 @@ class REVERSApp {
   }
 
   _openTopicsScreen() { if (!this.currentChat || this.currentChat.type !== 'group') return; document.getElementById('chatScreen').classList.add('hidden'); document.getElementById('topicsScreen').classList.remove('hidden'); this._renderTopicsList(); }
-  _closeTopicsScreen() { document.getElementById('topicsScreen').classList.add('hidden'); document.getElementById('chatScreen').classList.remove('hidden'); }
+  _closeTopicsScreen() {
+  document.getElementById('topicsScreen').classList.add('hidden');
+  const g = groupManager.groups.get(this.currentChat?.id);
+  if (g?.type === 'forum') {
+    document.getElementById('chatScreen').classList.add('hidden');
+    document.getElementById('chatsScreen').classList.remove('hidden');
+    this.currentChat = null;
+    this._currentTopic = null;
+    this._renderChatsList();
+  } else {
+    document.getElementById('chatScreen').classList.remove('hidden');
+  }
+  }
   _renderTopicsList() {
     if (!this.currentChat) return; const topics = groupManager.getTopics(this.currentChat.id);
     const container = document.getElementById('topicsList'); container.innerHTML = '';
@@ -566,29 +622,37 @@ class REVERSApp {
   _shareInviteLink(chat) { const l = this._generateInviteLink(chat); if (navigator.share) { navigator.share({ title: 'REVERS', text: 'Присоединяйся!', url: l }).catch(() => {}); } else { navigator.clipboard.writeText(l); alert('Ссылка скопирована!'); } }
 
   _openChat(chat) {
-    this.currentChat = chat; this._currentTopic = null;
-    document.getElementById('chatsScreen').classList.add('hidden');
-    const g = groupManager.groups.get(chat.id);
-    if (g?.type === 'forum') {
-      document.getElementById('chatScreen').classList.add('hidden');
-      document.getElementById('topicsScreen').classList.remove('hidden');
-      this._renderTopicsList();
-    } else {
-      document.getElementById('topicsScreen').classList.add('hidden');
-      document.getElementById('chatScreen').classList.remove('hidden');
-      document.getElementById('chatName').textContent = chat.name;
-      this._updateConnectionStatus(REVERS.isConnected(chat.id));
-      this._renderMessages(chat);
-    }
-    this._toggleSidebar(false);
-    document.getElementById('stickerPanel').classList.add('hidden');
-    document.querySelectorAll('.chat-dropdown').forEach(d => d.classList.add('hidden'));
-    document.getElementById('reactionPanel').classList.add('hidden');
-    document.getElementById('contextMenu').classList.add('hidden');
-    this._togglePinnedMessage(); this.replyTo = null; this._editingMessage = null;
-    document.getElementById('replyBar').classList.add('hidden');
+  this.currentChat = chat;
+  this._currentTopic = null;
+  document.getElementById('chatsScreen').classList.add('hidden');
+  
+  const g = groupManager.groups.get(chat.id);
+  const isForum = g?.type === 'forum';
+  
+  if (isForum) {
+    document.getElementById('chatScreen').classList.add('hidden');
+    document.getElementById('topicsScreen').classList.remove('hidden');
+    document.getElementById('topicsScreen').querySelector('.current-chat-name').textContent = chat.name;
+    this._renderTopicsList();
+  } else {
+    document.getElementById('topicsScreen').classList.add('hidden');
+    document.getElementById('chatScreen').classList.remove('hidden');
+    document.getElementById('chatName').textContent = chat.name;
+    this._updateConnectionStatus(REVERS.isConnected(chat.id));
+    this._renderMessages(chat);
   }
-
+  
+  this._toggleSidebar(false);
+  document.getElementById('stickerPanel').classList.add('hidden');
+  document.querySelectorAll('.chat-dropdown').forEach(d => d.classList.add('hidden'));
+  document.getElementById('reactionPanel').classList.add('hidden');
+  document.getElementById('contextMenu').classList.add('hidden');
+  this._togglePinnedMessage();
+  this.replyTo = null;
+  this._editingMessage = null;
+  document.getElementById('replyBar').classList.add('hidden');
+  }
+  
   _goToChats() { document.getElementById('chatScreen').classList.add('hidden'); document.getElementById('topicsScreen').classList.add('hidden'); document.getElementById('chatsScreen').classList.remove('hidden'); this.currentChat = null; this._currentTopic = null; this.replyTo = null; document.getElementById('replyBar').classList.add('hidden'); this._renderChatsList(); }
 
   async _renderChatsList(list = null) {
@@ -637,7 +701,19 @@ class REVERSApp {
   _renderChannelsList() { const c = document.getElementById('channelsList'); c.innerHTML = ''; REVERS.getAllChats().then(all => { const channels = all.filter(ch => ch.type === 'channel'); if (!channels.length) { c.innerHTML = '<p style="color:#8E8E9A; text-align:center;">Нет каналов</p>'; return; } channels.forEach(ch => { const d = document.createElement('div'); d.style.cssText = 'background:#2A2A3A; border-radius:16px; padding:12px; margin:8px 0; display:flex; justify-content:space-between; align-items:center;'; d.innerHTML = `<strong style="color:white">${ch.name}</strong>`; const btn = document.createElement('button'); btn.textContent = 'Открыть'; btn.style.cssText = 'background:#E63946; border:none; padding:6px 12px; border-radius:20px; color:white; cursor:pointer;'; btn.addEventListener('click', () => { this._closeAllModals(); this._openChat(ch); }); d.appendChild(btn); c.appendChild(d); }); }); }
 
   _formatSize(bytes) { if (!bytes) return ''; if (bytes < 1024) return bytes + ' B'; if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB'; if (bytes < 1073741824) return (bytes / 1048576).toFixed(1) + ' MB'; return (bytes / 1073741824).toFixed(1) + ' GB'; }
-  _deleteCurrentChat() { if (!this.currentChat || this.currentChat.type === 'saved') return; if (confirm('Удалить этот чат?')) this._goToChats(); }
+  _deleteCurrentChat() {
+  if (!this.currentChat || this.currentChat.type === 'saved') return;
+  if (!confirm('Удалить этот чат навсегда?')) return;
+  
+  if (this.currentChat.type === 'group') {
+    groupManager.deleteGroup(this.currentChat.id);
+  } else if (this.currentChat.type === 'channel') {
+    REVERS._engine?.messageHandler?.channels?.delete(this.currentChat.id);
+  }
+  
+  this._goToChats();
+  }
+  
   _updateConnectionStatus(connected) { const l = document.getElementById('statusLed'); const t = document.getElementById('statusText'); if (connected) { l.classList.add('green'); t.textContent = 'P2P'; } else { l.classList.remove('green'); t.textContent = 'Оффлайн'; } }
   _toggleSidebar(show) { document.getElementById('sidebar').classList.toggle('open', show); document.getElementById('overlay').classList.toggle('active', show); }
   _openModal(id) { this._closeAllModals(); document.getElementById(id).classList.add('active'); this._toggleSidebar(false); }
@@ -647,5 +723,47 @@ class REVERSApp {
   _loadSettings() { if (localStorage.getItem('revers_dark') === 'false') { document.body.classList.add('light-theme'); document.getElementById('themeToggle').classList.remove('active'); } }
   _esc(text) { if (!text) return ''; const d = document.createElement('div'); d.textContent = text; return d.innerHTML; }
 }
+
+_showChannelSettings() {
+  if (!this.currentChat || this.currentChat.type !== 'channel') return;
+  const c = REVERS._engine?.messageHandler?.channels?.get(this.currentChat.id);
+  if (!c) return;
+  
+  const content = document.getElementById('groupSettingsContent');
+  content.innerHTML = `
+    <div class="setting-row"><span class="setting-label">Название:</span><span style="color:#8E8E9A;">${this._esc(c.name)}</span></div>
+    <div style="text-align:center; margin:8px 0;">
+      <p style="color:#8E8E9A; font-size:0.8rem;">Аватар канала:</p>
+      <img id="channelAvatarPreview" class="avatar-modal-img" src="${c.avatar || 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ccircle fill=%22%232A2A3A%22 cx=%2250%22 cy=%2250%22 r=%2250%22/%3E%3Ctext x=%2250%22 y=%2267%22 text-anchor=%22middle%22 fill=%22%23E63946%22 font-size=%2240%22%3E📢%3C/text%3E%3C/svg%3E'}" style="width:60px; height:60px; margin:0 auto; display:block;">
+      <button id="changeChannelAvatarBtn" class="secondary" style="margin-top:8px;">Сменить аватар</button>
+      <input type="file" id="channelAvatarInput" accept="image/*" style="display:none">
+    </div>
+    <button id="deleteChannelBtn" style="background:#E63946; border:none; padding:8px; border-radius:12px; color:white; width:100%; margin-top:4px;">🗑️ Удалить канал</button>
+  `;
+  
+  document.getElementById('changeChannelAvatarBtn').addEventListener('click', () => document.getElementById('channelAvatarInput').click());
+  document.getElementById('channelAvatarInput').addEventListener('change', (e) => {
+    if (e.target.files[0]) {
+      const r = new FileReader();
+      r.onload = (ev) => {
+        c.avatar = ev.target.result;
+        document.getElementById('channelAvatarPreview').src = ev.target.result;
+        REVERS._engine?.messageHandler?._saveChannels();
+      };
+      r.readAsDataURL(e.target.files[0]);
+    }
+  });
+  document.getElementById('deleteChannelBtn').addEventListener('click', () => {
+    if (confirm('Удалить канал?')) {
+      REVERS._engine?.messageHandler?.channels?.delete(this.currentChat.id);
+      REVERS._engine?.messageHandler?._saveChannels();
+      this._goToChats();
+      this._closeAllModals();
+    }
+  });
+  
+  document.getElementById('groupSettingsModal').querySelector('h3').textContent = '⚙️ Настройки канала';
+  this._openModal('groupSettingsModal');
+  }
 
 document.addEventListener('DOMContentLoaded', () => new REVERSApp());
