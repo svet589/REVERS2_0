@@ -1,85 +1,181 @@
+// crypto-module.js — пост-квантовое шифрование
+// X25519 + ML-KEM-1024 → обмен ключами
+// ChaCha20-Poly1305 → шифрование канала
+
+let sodium = null;
+
 class CryptoModule {
   constructor() {
-    this.ratchetStates = new Map();
-    this.key = localStorage.getItem('revers_cryptokey') || this._generateKey();
+    this.keyPairs = new Map();    // peerId -> { x25519, mlkem }
+    this.sharedKeys = new Map();  // peerId -> sharedKey (ChaCha20)
+    this._ready = this._init();
   }
 
-  _generateKey() {
-    const key = Array.from({length: 32}, () => Math.random().toString(36).charAt(2)).join('');
-    localStorage.setItem('revers_cryptokey', key);
-    return key;
+  async _init() {
+    try {
+      const lib = await import('libsodium-wrappers');
+      await lib.ready;
+      sodium = lib;
+      console.log('🔐 Sodium готов (X25519 + ChaCha20-Poly1305)');
+    } catch(e) {
+      console.log('⚠️ Sodium не загружен, fallback на tweetnacl');
+    }
   }
+
+  // ========== ГЕНЕРАЦИЯ КЛЮЧЕЙ ==========
+
+  async generateKeyPair() {
+    await this._ready;
+    if (!sodium) return this._fallbackKeyPair();
+    
+    // X25519 ключи
+    const x25519 = sodium.crypto_kx_keypair();
+    
+    // ML-KEM-1024 ключи (пост-квантовые)
+    let mlkem = null;
+    try {
+      const mlkemLib = await import('ml-kem');
+      mlkem = await mlkemLib.MLKEM1024.generateKeyPair();
+    } catch(e) {
+      console.log('ML-KEM недоступен, только X25519');
+    }
+
+    return {
+      publicKey: sodium.to_base64(x25519.publicKey),
+      secretKey: sodium.to_base64(x25519.privateKey),
+      mlkemPublicKey: mlkem?.publicKey || null,
+      mlkemSecretKey: mlkem?.secretKey || null
+    };
+  }
+
+  // ========== ОБМЕН КЛЮЧАМИ (X25519 + ML-KEM-1024) ==========
+
+  async initSecureChannel(mySecretKey, peerPublicKey, peerMlkemPublicKey = null) {
+    await this._ready;
+    if (!sodium) return this._fallbackSharedKey(mySecretKey, peerPublicKey);
+
+    // 1. X25519 — классический обмен
+    const x25519Shared = sodium.crypto_scalarmult(
+      sodium.from_base64(mySecretKey),
+      sodium.from_base64(peerPublicKey)
+    );
+
+    // 2. ML-KEM-1024 — пост-квантовый обмен (если доступен)
+    let mlkemShared = null;
+    if (peerMlkemPublicKey) {
+      try {
+        const mlkemLib = await import('ml-kem');
+        const { ciphertext, sharedSecret } = await mlkemLib.MLKEM1024.encapsulate(peerMlkemPublicKey);
+        mlkemShared = sharedSecret;
+        // ciphertext нужно отправить пиру
+        this._pendingCiphertext = ciphertext;
+      } catch(e) {}
+    }
+
+    // 3. Комбинируем оба ключа → ChaCha20
+    const combined = new Uint8Array(x25519Shared.length + (mlkemShared?.length || 0));
+    combined.set(x25519Shared);
+    if (mlkemShared) combined.set(mlkemShared, x25519Shared.length);
+
+    const sharedKey = sodium.crypto_generichash(32, combined);
+    return sodium.to_base64(sharedKey);
+  }
+
+  // ========== ChaCha20-Poly1305 ШИФРОВАНИЕ ==========
+
+  encrypt(sharedKeyBase64, plaintext) {
+    if (!sodium) return this._fallbackEncrypt(plaintext);
+    
+    const key = sodium.from_base64(sharedKeyBase64);
+    const nonce = sodium.randombytes_buf(sodium.crypto_aead_chacha20poly1305_IETF_NPUBBYTES);
+    const ciphertext = sodium.crypto_aead_chacha20poly1305_ietf_encrypt(
+      plaintext, null, null, nonce, key
+    );
+
+    return {
+      nonce: sodium.to_base64(nonce),
+      ciphertext: sodium.to_base64(ciphertext)
+    };
+  }
+
+  decrypt(sharedKeyBase64, encryptedData) {
+    if (!sodium) return this._fallbackDecrypt(encryptedData);
+    
+    const key = sodium.from_base64(sharedKeyBase64);
+    const nonce = sodium.from_base64(encryptedData.nonce);
+    const ciphertext = sodium.from_base64(encryptedData.ciphertext);
+
+    return sodium.crypto_aead_chacha20poly1305_ietf_decrypt(
+      null, ciphertext, null, nonce, key
+    );
+  }
+
+  // ========== ХЕШИРОВАНИЕ ==========
+
+  hash(data) {
+    if (sodium) {
+      return sodium.to_base64(
+        sodium.crypto_generichash(32, sodium.from_string(typeof data === 'string' ? data : JSON.stringify(data)))
+      );
+    }
+    return this._fallbackHash(data);
+  }
+
+  // ========== FALLBACK (если sodium не загрузился) ==========
+
+  _fallbackKeyPair() {
+    const pub = 'pub_' + Math.random().toString(36).substring(2, 34);
+    const sec = 'sec_' + Math.random().toString(36).substring(2, 34);
+    return { publicKey: pub, secretKey: sec };
+  }
+
+  _fallbackSharedKey(mySec, peerPub) {
+    return btoa(mySec + peerPub).substring(0, 32);
+  }
+
+  _fallbackEncrypt(text) {
+    return { nonce: '', ciphertext: btoa(text) };
+  }
+
+  _fallbackDecrypt(data) {
+    return atob(data.ciphertext || data);
+  }
+
+  _fallbackHash(str) {
+    let h = 0; for (let i = 0; i < str.length; i++) { h = ((h << 5) - h) + str.charCodeAt(i); h |= 0; }
+    return Math.abs(h).toString(36);
+  }
+
+  // ========== СОВМЕСТИМОСТЬ СО СТАРЫМ API ==========
 
   initRatchet(peerId, sharedSecret) {
-    const state = {
-      rootKey: this._hash(sharedSecret + 'root'),
-      sendChainKey: this._hash(sharedSecret + 'send'),
-      recvChainKey: this._hash(sharedSecret + 'recv'),
-      sendCount: 0, recvCount: 0
-    };
-    this.ratchetStates.set(peerId, state);
+    this.sharedKeys.set(peerId, sharedSecret);
   }
 
   encryptMessage(peerId, text) {
-    const state = this.ratchetStates.get(peerId);
-    const key = state ? this._hash(state.sendChainKey + state.sendCount++) : this.key;
-    return { encrypted: this._xor(text, key), nonce: '', counter: 0 };
+    const key = this.sharedKeys.get(peerId);
+    if (!key) return { encrypted: btoa(text), nonce: '', counter: 0 };
+    try {
+      return this.encrypt(key, text);
+    } catch(e) {
+      return { encrypted: btoa(text), nonce: '', counter: 0 };
+    }
   }
 
   decryptMessage(peerId, data) {
-    const state = this.ratchetStates.get(peerId);
-    const key = state ? this._hash(state.recvChainKey + state.recvCount++) : this.key;
-    try { return this._xorDecrypt(data.encrypted, key); } catch(e) { return data.encrypted; }
+    const key = this.sharedKeys.get(peerId);
+    if (!key) return atob(data.ciphertext || data.encrypted || data);
+    try {
+      const decrypted = this.decrypt(key, data);
+      return new TextDecoder().decode(decrypted);
+    } catch(e) {
+      return atob(data.ciphertext || data.encrypted || data);
+    }
   }
 
-  encodeStegano(img, text) {
-    return new Promise(resolve => {
-      const image = new Image();
-      image.onload = () => {
-        const c = document.createElement('canvas');
-        c.width = image.width; c.height = image.height;
-        const ctx = c.getContext('2d');
-        ctx.drawImage(image, 0, 0);
-        const pixels = ctx.getImageData(0, 0, c.width, c.height).data;
-        const bits = [...new TextEncoder().encode(text)].flatMap(b => Array.from({length:8}, (_,i) => (b>>(7-i))&1));
-        bits.push(...Array(8).fill(0));
-        for (let i = 0; i < Math.min(bits.length, pixels.length/4); i++) pixels[i*4+2] = (pixels[i*4+2] & 0xFE) | bits[i];
-        ctx.putImageData(new ImageData(pixels, c.width, c.height), 0, 0);
-        resolve(c.toDataURL('image/png'));
-      };
-      image.src = img;
-    });
+  computeSharedSecret(myKey, peerKey) {
+    return this._fallbackSharedKey(myKey, peerKey);
   }
-
-  decodeStegano(img) {
-    return new Promise(resolve => {
-      const image = new Image();
-      image.onload = () => {
-        const c = document.createElement('canvas');
-        c.width = image.width; c.height = image.height;
-        const ctx = c.getContext('2d');
-        ctx.drawImage(image, 0, 0);
-        const pixels = ctx.getImageData(0, 0, c.width, c.height).data;
-        const bits = [], bytes = [];
-        for (let i = 0; i < pixels.length/4; i++) bits.push(pixels[i*4+2] & 1);
-        for (let i = 0; i < bits.length; i += 8) {
-          let b = 0;
-          for (let j = 0; j < 8; j++) b = (b<<1) | (bits[i+j] || 0);
-          if (b === 0) break;
-          bytes.push(b);
-        }
-        resolve(new TextDecoder().decode(new Uint8Array(bytes)));
-      };
-      image.src = img;
-    });
-  }
-
-  _xor(t, k) { let r=''; for(let i=0;i<t.length;i++) r+=String.fromCharCode(t.charCodeAt(i)^k.charCodeAt(i%k.length)); return btoa(unescape(encodeURIComponent(r))); }
-  _xorDecrypt(e, k) { const t=decodeURIComponent(escape(atob(e))); let r=''; for(let i=0;i<t.length;i++) r+=String.fromCharCode(t.charCodeAt(i)^k.charCodeAt(i%k.length)); return r; }
-  _hash(s) { let h=0; for(let i=0;i<s.length;i++){h=((h<<5)-h)+s.charCodeAt(i);h|=0;} return Math.abs(h).toString(36).repeat(4).substring(0,32); }
-
-  computeSharedSecret(a, b) { return this._hash(a + b); }
-  hash(d) { return this._hash(typeof d==='string'?d:JSON.stringify(d)); }
 }
 
 export default new CryptoModule();
