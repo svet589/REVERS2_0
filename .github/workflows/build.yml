@@ -17,7 +17,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 18
-          cache: 'npm'
+          # cache: 'npm'   # закомментировано, если нет package-lock.json
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -29,20 +29,8 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Cache Capacitor & Gradle
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-            android/.gradle
-            ~/.npm
-          key: ${{ runner.os }}-gradle-npm-${{ hashFiles('**/package-lock.json', '**/*.gradle*') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-npm-
-
       - name: Install Dependencies
-        run: npm ci
+        run: npm install   # не npm ci (требует lock-файл)
 
       - name: Build Bundle (ESBuild)
         run: npm run build
@@ -67,19 +55,3 @@ jobs:
         with:
           name: REVERS-Debug
           path: android/app/build/outputs/apk/debug/*.apk
-
-      # - name: Build Release APK
-      #   if: github.ref == 'refs/heads/main'
-      #   env:
-      #     SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
-      #     SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
-      #     SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
-      #   run: |
-      #     cd android
-      #     ./gradlew assembleRelease
-      # 
-      # - name: Upload Release APK
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: REVERS-Release
-      #     path: android/app/build/outputs/apk/release/*.apk
