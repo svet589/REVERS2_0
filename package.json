@@ -14,7 +14,7 @@
     "@capacitor/browser": "^5.0.0",
     "libsodium-wrappers": "^0.7.13",
     "pako": "^2.1.0",
-    "@noble/post-quantum": "^0.1.0",
+    "@noble/post-quantum": "0.2.0",
     "lottie-web": "^5.12.0"
   },
   "devDependencies": {
