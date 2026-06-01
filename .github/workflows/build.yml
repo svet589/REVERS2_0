@@ -1,61 +1,44 @@
 name: Build REVERS APK
-
 on:
   push:
-    branches: ["main", "release/*"]
+    branches: ["main"]
   workflow_dispatch:
-
 jobs:
   build:
     runs-on: ubuntu-latest
-    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 18
-
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
       - name: Install Dependencies
         run: npm install
-
-      - name: Build Bundle (ESBuild)
+      - name: Build Bundle
         run: npm run build
-
       - name: Init Capacitor
         run: |
           npx cap init REVERS com.revers.messenger --web-dir=src
           npx cap add android
-
-      - name: Copy Android Manifest
+      - name: Copy Manifest
         run: cp android-manifest.xml android/app/src/main/AndroidManifest.xml
-
-      - name: Setup Java & Android SDK
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-          # cache: 'gradle'  # отключаем кэш, чтобы не искал файлы
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Sync Capacitor & Generate Assets
+      - name: Generate Icons
+        run: npx capacitor-assets generate --iconBackgroundColor '#0F0F12' --iconBackgroundColorDark '#0F0F12'
+      - name: Build APK
         run: |
-          npx cap sync android
-          npx cap copy android
-          npx @capacitor/assets generate --iconBackgroundColor '#0F0F12' --iconBackgroundColorDark '#0F0F12'
-
-      - name: Build Debug APK
-        run: |
+          npx cap sync
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug
-
-      - name: Upload Debug APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: REVERS-Debug
-          path: android/app/build/outputs/apk/debug/*.apk
+          name: REVERS-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
