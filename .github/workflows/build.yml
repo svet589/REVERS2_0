@@ -17,26 +17,30 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 18
-          # cache: 'npm'   # закомментировано, если нет package-lock.json
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-          cache: 'gradle'
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
 
       - name: Install Dependencies
-        run: npm install   # не npm ci (требует lock-файл)
+        run: npm install
 
       - name: Build Bundle (ESBuild)
         run: npm run build
 
+      - name: Init Capacitor
+        run: |
+          npx cap init REVERS com.revers.messenger --web-dir=src
+          npx cap add android
+
       - name: Copy Android Manifest
         run: cp android-manifest.xml android/app/src/main/AndroidManifest.xml
+
+      - name: Setup Java & Android SDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          # cache: 'gradle'  # отключаем кэш, чтобы не искал файлы
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
       - name: Sync Capacitor & Generate Assets
         run: |
