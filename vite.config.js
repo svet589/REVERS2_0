@@ -8,6 +8,11 @@ export default defineConfig({
       targets: ['defaults', 'not IE 11']
     })
   ],
+  resolve: {
+    alias: {
+      '@noble/post-quantum/ml-kem-768': '@noble/post-quantum'
+    }
+  },
   build: {
     target: 'es2015',
     outDir: 'src',
@@ -21,10 +26,10 @@ export default defineConfig({
       }
     },
     commonjsOptions: {
-      include: [/libsodium-wrappers/, /node_modules/]
+      include: [/libsodium-wrappers/, /@noble\/post-quantum/, /node_modules/]
     }
   },
   optimizeDeps: {
-    include: ['libsodium-wrappers']
+    include: ['libsodium-wrappers', '@noble/post-quantum']
   }
 });
