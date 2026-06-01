@@ -3,11 +3,30 @@
   "appName": "REVERS",
   "webDir": "src",
   "bundledWebRuntime": false,
+  "android": {
+    "allowMixedContent": true,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false
+  },
+  "ios": {
+    "scheme": "REVERS",
+    "contentInset": "always"
+  },
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "ionic",
+    "cleartext": false
+  },
   "plugins": {
     "Browser": {
       "android": {
         "scheme": "https"
       }
+    },
+    "SplashScreen": {
+      "launchShowDuration": 2000,
+      "launchAutoHide": true,
+      "backgroundColor": "#0F0F12"
     }
   }
 }
