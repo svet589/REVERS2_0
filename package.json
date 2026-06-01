@@ -1,16 +1,21 @@
 {
   "name": "revers-messenger",
-  "version": "1.3.0",
-  "description": "P2P мессенджер с пост-квантовым шифрованием",
+  "version": "3.2.0",
+  "description": "P2P мессенджер с пост-квантовым шифрованием, паутиной и DHT",
   "scripts": {
     "build": "npx esbuild src/app.js --bundle --outfile=src/bundle.js --format=iife --platform=browser --external:electron --external:fs --external:path --external:os --external:crypto",
+    "build:watch": "npx esbuild src/app.js --bundle --outfile=src/bundle.js --watch",
+    "dev": "npx esbuild src/app.js --bundle --outfile=src/bundle.js --servedir=src --watch",
     "apk": "npm run build && npx cap sync && cd android && ./gradlew assembleDebug"
   },
   "dependencies": {
     "qrcode": "^1.5.3",
     "html5-qrcode": "^2.3.8",
     "@capacitor/browser": "^5.0.0",
-    "libsodium-wrappers": "^0.7.13"
+    "libsodium-wrappers": "^0.7.13",
+    "pako": "^2.1.0",
+    "@noble/post-quantum": "^0.1.0",
+    "lottie-web": "^5.12.0"
   },
   "devDependencies": {
     "@capacitor/core": "^5.0.0",
