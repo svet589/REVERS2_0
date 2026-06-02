@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // src/ui/components/Announcement.js — компонент объявления
 import { escapeHtml, formatTime } from '../../utils/formatters.js';
 import { createElement } from '../../utils/dom.js';
