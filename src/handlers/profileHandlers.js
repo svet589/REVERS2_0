@@ -1,5 +1,5 @@
 // src/handlers/profileHandlers.js — обработка профиля
-import identity from './core/identity.js';
+import identity from '../core/identity.js';
 
 // Кэш профилей
 const profileCache = new Map();
