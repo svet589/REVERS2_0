@@ -1,5 +1,5 @@
 // src/handlers/pollHandlers.js — обработка голосований
-import groupManager from '../core/group-manager.js';
+import groupManager from './core/group-manager.js';
 
 export function initPollHandlers(eventBus) {
   // Создать голосование
