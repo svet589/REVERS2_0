@@ -9,7 +9,166 @@
     <meta name="developer" content="https://github.com/svet589">
 </head>
 <body>
-    <div id="app"></div>
+    <div id="app">
+        <!-- Заголовок -->
+        <div class="app-header">
+            <h1>REVERS</h1>
+            <span id="dhtStatus">🌐</span>
+        </div>
+
+        <!-- Экран чатов -->
+        <div id="chatsScreen" class="screen">
+            <div class="chats-header">
+                <button class="menu-btn" id="menuBtn">☰</button>
+                <div class="chats-title">Чаты</div>
+                <div style="display:flex;gap:8px;">
+                    <button class="action-icon" id="searchChatsBtn">🔍</button>
+                    <button class="action-icon" id="addContactBtn">➕</button>
+                </div>
+            </div>
+            <div class="folder-tabs" id="folderTabs"></div>
+            <div class="search-bar hidden" id="searchChatsBar">
+                <input type="text" class="search-input" id="searchChatsInput" placeholder="Поиск...">
+                <button class="action-icon" id="searchChatsCloseBtn">✖</button>
+            </div>
+            <div class="chats-list" id="chatsList"></div>
+        </div>
+
+        <!-- Экран чата -->
+        <div id="chatScreen" class="screen hidden">
+            <div class="chat-header">
+                <button class="back-btn" id="backBtn">←</button>
+                <span class="current-chat-name" id="chatName">Чат</span>
+                <span id="typingIndicator"></span>
+                <span id="connectionIcon"></span>
+                <div class="connection-status">
+                    <div class="status-led" id="statusLed"></div>
+                    <span id="statusText">Оффлайн</span>
+                </div>
+                <button class="menu-btn" id="chatMenuBtn">⋮</button>
+            </div>
+            <!-- Дропдауны -->
+            <div class="chat-dropdown hidden" id="contactDropdown"></div>
+            <div class="chat-dropdown hidden" id="groupDropdown"></div>
+            <div class="chat-dropdown hidden" id="channelDropdown"></div>
+            <div class="chat-dropdown hidden" id="savedDropdown"></div>
+            <!-- Поиск в чате -->
+            <div class="search-bar hidden" id="searchInChatBar">
+                <input type="text" class="search-input" id="searchInChatInput" placeholder="Поиск...">
+                <span class="search-counter" id="searchCounter">0/0</span>
+                <button class="action-icon" id="searchPrevBtn">⬆️</button>
+                <button class="action-icon" id="searchNextBtn">⬇️</button>
+                <button class="action-icon" id="searchInChatCloseBtn">✖</button>
+            </div>
+            <div id="pinnedMessage" class="pinned-message hidden">
+                <div id="pinnedText"></div>
+                <button id="unpinBtn">✖</button>
+            </div>
+            <div class="messages-area" id="messagesArea"></div>
+            <div class="reply-bar hidden" id="replyBar">
+                <div class="reply-bar-text" id="replyBarText"></div>
+                <button class="reply-bar-close" id="replyBarClose">✖</button>
+            </div>
+            <div class="edit-indicator hidden" id="editIndicator">✏️ Редактирование</div>
+            <div class="input-panel">
+                <button class="sticker-btn" id="stickerToggleBtn">😊</button>
+                <button class="sticker-btn" id="voiceRecordBtn">🎤</button>
+                <div class="message-input-wrapper">
+                    <input type="text" class="message-input" id="messageInput" placeholder="Сообщение...">
+                    <label class="file-label" for="fileInput">📎</label>
+                    <input type="file" id="fileInput">
+                    <button class="send-btn" id="sendBtn">➤</button>
+                </div>
+            </div>
+            <div class="sticker-panel hidden" id="stickerPanel">
+                <div class="sticker-tabs" id="stickerTabs"></div>
+                <div class="sticker-grid" id="stickerGrid"></div>
+                <div class="sticker-pack-actions hidden" id="stickerPackActions">
+                    <button id="addStickerToPackBtn">➕</button>
+                    <button id="deleteStickerPackBtn" class="danger">🗑️</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Экран тем -->
+        <div id="topicsScreen" class="screen hidden">
+            <div class="chat-header">
+                <button class="back-btn" id="topicsBackBtn">←</button>
+                <span class="current-chat-name">Темы</span>
+                <button class="action-icon" id="addTopicBtn">➕</button>
+            </div>
+            <div class="topics-list" id="topicsList"></div>
+        </div>
+
+        <!-- Реакции -->
+        <div class="reaction-panel hidden" id="reactionPanel">
+            <div class="reaction-emoji" data-emoji="👍">👍</div>
+            <div class="reaction-emoji" data-emoji="😂">😂</div>
+            <div class="reaction-emoji" data-emoji="❤️">❤️</div>
+            <div class="reaction-emoji" data-emoji="😮">😮</div>
+            <div class="reaction-emoji" data-emoji="🔥">🔥</div>
+            <div class="reaction-emoji" data-emoji="💯">💯</div>
+        </div>
+
+        <!-- Контекстное меню -->
+        <div class="context-menu hidden" id="contextMenu">
+            <button class="dropdown-item" id="ctxEdit">✏️ Редактировать</button>
+            <button class="dropdown-item" id="ctxReply">↩️ Ответить</button>
+            <button class="dropdown-item" id="ctxPin">📌 Закрепить</button>
+            <button class="dropdown-item" id="ctxCopy">📋 Копировать</button>
+            <div class="dropdown-divider"></div>
+            <button class="dropdown-item danger" id="ctxDelete">🗑️ Удалить</button>
+        </div>
+
+        <!-- Боковое меню -->
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-header">REVERS</div>
+            <div class="sidebar-menu">
+                <button class="menu-item" id="qrMenuBtn">🔳 QR</button>
+                <button class="menu-item" id="scanMenuBtn">📷 Сканер</button>
+                <button class="menu-item" id="savedMenuBtn">📔 Сохранённые</button>
+                <button class="menu-item" id="browserMenuBtn">🌐 Браузер</button>
+                <button class="menu-item" id="accountMenuBtn">👤 Аккаунт</button>
+                <button class="menu-item" id="groupsMenuBtn">👥 Группы</button>
+                <button class="menu-item" id="channelsMenuBtn">📢 Каналы</button>
+                <button class="menu-item" id="settingsMenuBtn">⚙️ Настройки</button>
+                <button class="menu-item" id="aboutMenuBtn">ℹ️ О нас</button>
+            </div>
+        </div>
+        <div class="overlay" id="overlay"></div>
+
+        <!-- Модалки (пустые, заполняются из JS) -->
+        <div class="modal" id="addContactModal"><h3>➕ Добавить</h3><input type="text" id="addContactIdInput" placeholder="ID"><button id="addContactConfirmBtn">Добавить</button><button id="addContactCloseBtn" class="secondary">Закрыть</button></div>
+        <div class="modal" id="connectModal"><h3>🔗 Подключиться</h3><input type="text" id="peerIdInput" placeholder="ID"><input type="text" id="signalInput" placeholder="Сигнал"><button id="connectSendBtn">Подключиться</button><textarea id="mySignalOutput" readonly></textarea><button id="copySignalBtn" class="secondary">📋</button><button id="closeConnectBtn" class="secondary">Закрыть</button></div>
+        <div class="modal" id="qrModal"><h3>🔳 QR</h3><canvas id="qrCanvas"></canvas><code id="inviteLink"></code><button id="copyInviteLinkBtn" class="secondary">📋</button><button id="shareInviteBtn" class="secondary">📤</button><button id="closeQrBtn" class="secondary">Закрыть</button></div>
+        <div class="modal" id="scannerModal"><h3>📷 Сканер</h3><div id="scannerContainer"></div><button id="stopScannerBtn" class="secondary">Отмена</button></div>
+        <div class="modal" id="browserModal"><h3>🌐 Браузер</h3><input type="text" id="browserUrlInput" placeholder="https://..."><button id="browserGoBtn">Открыть</button><button id="closeBrowserBtn" class="secondary">Закрыть</button></div>
+        <div class="modal" id="accountModal"><h3>Аккаунт</h3></div>
+        <div class="modal" id="groupsModal"><h3>👥 Группы</h3><div id="groupsList"></div><button id="createGroupBtn">➕ Создать</button><button id="closeGroupsBtn" class="secondary">Закрыть</button></div>
+        <div class="modal" id="createGroupModal"><h3>Группа</h3><input type="text" id="groupNameInput" placeholder="Название"><select id="groupTypeSelect"><option value="chat">💬 Чат</option><option value="forum">📂 Форум</option></select><button id="confirmGroupBtn">Создать</button><button id="cancelGroupBtn" class="secondary">Отмена</button></div>
+        <div class="modal" id="channelsModal"><h3>📢 Каналы</h3><div id="channelsList"></div><button id="createChannelBtn">➕ Создать</button><button id="closeChannelsBtn" class="secondary">Закрыть</button></div>
+        <div class="modal" id="createChannelModal"><h3>Канал</h3><input type="text" id="channelNameInput" placeholder="Название"><button id="confirmChannelBtn">Создать</button><button id="cancelChannelBtn" class="secondary">Отмена</button></div>
+        <div class="modal" id="groupSettingsModal"><h3>⚙️ Настройки</h3><div id="groupSettingsContent"></div><button id="closeGroupSettingsBtn" class="secondary">Закрыть</button></div>
+        <div class="modal" id="createTopicModal"><h3>📂 Тема</h3><input type="text" id="topicNameInput" placeholder="Название"><div class="setting-row"><span>🔒 Закрытая</span><div id="topicClosedToggle" class="toggle-switch"></div></div><button id="confirmTopicBtn">Создать</button><button id="cancelTopicBtn" class="secondary">Отмена</button></div>
+        <div class="modal" id="createPollModal"><h3>📊 Голосование</h3><input type="text" id="pollQuestionInput" placeholder="Вопрос"><input type="text" id="pollOptionsInput" placeholder="Варианты через запятую"><div class="setting-row"><span>Анонимное</span><div id="pollAnonymousToggle" class="toggle-switch"></div></div><button id="confirmPollBtn">Создать</button><button id="cancelPollBtn" class="secondary">Отмена</button></div>
+        <div class="modal" id="settingsModal"><h3>⚙️ Настройки</h3><select id="themeSelect"><option value="default">Тёмная</option><option value="night">Ночная</option><option value="light">Светлая</option></select><button id="closeSettingsBtn" class="secondary">Закрыть</button></div>
+        <div class="modal" id="aboutModal"><h3>ℹ️ REVERS v3.2</h3><p>P2P • X25519+ML-KEM • ChaCha20</p><p>Паутина • DHT • Анонимность</p><button id="closeAboutBtn" class="secondary">Закрыть</button></div>
+        <div class="modal" id="createStickerPackModal"><h3>🎨 Пак</h3><input type="text" id="stickerPackNameInput" placeholder="Название"><button id="confirmStickerPackBtn">Создать</button><button id="cancelStickerPackBtn" class="secondary">Отмена</button></div>
+        <div class="modal" id="addStickerModal"><h3>➕ Стикер</h3><input type="file" id="stickerFileInput" accept="image/*"><img id="stickerPreview"><input type="text" id="stickerEmojiInput" placeholder="Эмодзи"><button id="confirmStickerBtn">Добавить</button><button id="cancelStickerBtn" class="secondary">Отмена</button></div>
+
+        <!-- Просмотр изображений -->
+        <div class="image-viewer" id="imageViewer"><img id="fullscreenImage"></div>
+
+        <!-- Звонок -->
+        <div class="call-modal hidden" id="callModal">
+            <div class="call-header"><span id="callPeerName">Звонок</span><span id="callDuration">00:00</span></div>
+            <div class="call-video" id="callVideo"></div>
+            <div class="call-chat" id="callChat"></div>
+            <div class="call-input"><input type="text" id="callMessageInput" placeholder="Сообщение..."><button id="callSendBtn">➤</button></div>
+            <div class="call-controls"><button id="callMicBtn">🔇</button><button id="callCamBtn">📷</button><button id="callEndBtn">❌</button></div>
+        </div>
+    </div>
+
     <script src="bundle.js"></script>
 </body>
-</html>
+                    </html>
