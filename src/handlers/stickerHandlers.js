@@ -1,5 +1,5 @@
 // src/handlers/stickerHandlers.js — обработка стикеров
-import stickerManager from './core/sticker-manager.js';
+import stickerManager from '../core/sticker-manager.js';
 
 export function initStickerHandlers(eventBus) {
   // Получить все паки
