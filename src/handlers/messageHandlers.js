@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // src/handlers/messageHandlers.js — обработка сообщений
 import messageHandler from '../core/message-handler.js';
 import p2pNetwork from '../core/p2p-network.js';
