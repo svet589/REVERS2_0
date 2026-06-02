@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // src/handlers/callHandlers.js — обработка звонков
 import callManager from '../core/call-manager.js';
 
