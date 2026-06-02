@@ -1,9 +1,9 @@
 // src/handlers/messageHandlers.js — обработка сообщений
-import messageHandler from './core/message-handler.js';
-import p2pNetwork from './core/p2p-network.js';
-import identity from './core/identity.js';
-import { MESSAGE_STATUS, UI } from './utils/constants.js';
-import { getRaw, setRaw, remove } from './utils/storage.js';
+import messageHandler from '../core/message-handler.js';
+import p2pNetwork from '../core/p2p-network.js';
+import identity from '../core/identity.js';
+import { MESSAGE_STATUS, UI } from '../utils/constants.js';
+import { getRaw, setRaw, remove } from '../utils/storage.js';
 
 export function initMessageHandlers(eventBus) {
   // Входящие сообщения
