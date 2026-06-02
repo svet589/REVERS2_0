@@ -1,5 +1,5 @@
 // src/handlers/fileHandlers.js — обработка файлов
-import messageHandler from './core/message-handler.js';
+import messageHandler from '../core/message-handler.js';
 
 export function initFileHandlers(eventBus) {
   // Отправка файла
