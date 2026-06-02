@@ -61,7 +61,7 @@ class REVERSApp {
     this.modals.scanner = new ScannerModal(this.eventBus);
     this.modals.giftShop = new GiftShopModal(this.eventBus);
 
-    // Рендер
+    // Рендер бокового меню и модалок
     this.screens.sidebar.render();
     this.modals.group.render();
     this.modals.settings.render();
@@ -75,22 +75,18 @@ class REVERSApp {
     this.eventBus.on('navigate:topics', (group) => this._showTopics(group));
     this.eventBus.on('navigate:topic', ({ groupId, topicId, topicName }) => this._showTopic(groupId, topicId, topicName));
     this.eventBus.on('navigate:profile', (userId) => this._showProfile(userId));
-
-    // Модалки
     this.eventBus.on('openModal', (modalId) => this._openModal(modalId));
-
-    // Браузер
     this.eventBus.on('openBrowser', () => this._openBrowser());
 
     // Применяем тему
     this._applyTheme();
 
-    // Стартовый экран
-    this._showScreen('chats');
-
     // DHT статус
     this._updateDHTStatus();
     setInterval(() => this._updateDHTStatus(), 10000);
+
+    // СТАРТОВЫЙ РЕНДЕР — ЭТО БЫЛО ПРОПУЩЕНО
+    this._showScreen('chats');
 
     // Сохраняем ссылку для onclick
     window.REVERSApp = this;
