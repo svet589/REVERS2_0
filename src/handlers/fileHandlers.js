@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // src/handlers/fileHandlers.js — обработка файлов
 import messageHandler from '../core/message-handler.js';
 
