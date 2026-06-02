@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // src/handlers/pollHandlers.js — обработка голосований
 import groupManager from '../core/group-manager.js';
 
