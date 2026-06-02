@@ -1,6 +1,6 @@
 // src/handlers/groupHandlers.js — обработка групп
-import groupManager from './core/group-manager.js';
-import messageHandler from './core/message-handler.js';
+import groupManager from '../core/group-manager.js';
+import messageHandler from '../core/message-handler.js';
 
 export function initGroupHandlers(eventBus) {
   // Создание группы
