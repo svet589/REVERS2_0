@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // src/handlers/profileHandlers.js — обработка профиля
 import identity from '../core/identity.js';
 
