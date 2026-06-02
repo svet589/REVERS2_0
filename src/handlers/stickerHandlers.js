@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // src/handlers/stickerHandlers.js — обработка стикеров
 import stickerManager from '../core/sticker-manager.js';
 
