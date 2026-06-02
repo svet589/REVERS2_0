@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // src/handlers/groupHandlers.js — обработка групп
 import groupManager from '../core/group-manager.js';
 import messageHandler from '../core/message-handler.js';
