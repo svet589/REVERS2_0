@@ -1,5 +1,5 @@
 // src/handlers/callHandlers.js — обработка звонков
-import callManager from '../core/call-manager.js';
+import callManager from './core/call-manager.js';
 
 export function initCallHandlers(eventBus) {
   // Входящий звонок
