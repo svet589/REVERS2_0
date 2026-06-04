@@ -21,12 +21,10 @@
 // src/handlers/messageHandlers.js — обработка сообщений
 import messageHandler from '../core/message-handler.js';
 import p2pNetwork from '../core/p2p-network.js';
-import identity from '../core/identity.js';
 import { UI } from '../utils/constants.js';
 import { getRaw, setRaw, remove } from '../utils/storage.js';
 
 export function initMessageHandlers(eventBus) {
-  // Входящие сообщения
   messageHandler.onMessage((msg) => {
     if (msg.type === 'typing') {
       eventBus.emit('typing', { peerId: msg.from, isTyping: msg.typing !== false });
@@ -39,51 +37,50 @@ export function initMessageHandlers(eventBus) {
     eventBus.emit('newMessage', msg);
   });
 
-  messageHandler.onChatUpdate(() => {
-    eventBus.emit('chatsUpdated');
-  });
+  messageHandler.onChatUpdate(() => eventBus.emit('chatsUpdated'));
 
-  // Отправка сообщения — слушаем sendCurrentMessage
-  eventBus.on('sendCurrentMessage', () => {
-    const input = document.getElementById('messageInput');
-    const text = input?.value?.trim();
+  // Отправка сообщения из поля ввода
+  eventBus.on('sendCurrentMessage', ({ text }) => {
     if (!text) return;
 
-    // Получаем текущий чат из ChatScreen
     eventBus.emit('getCurrentChat');
     eventBus.once('currentChat', (chat) => {
       if (!chat) return;
 
-      let peerId = 'me';
-      if (chat.type === 'contact') peerId = chat.id;
-      else if (chat.type === 'group') {
+      if (chat.type === 'group') {
         eventBus.emit('sendGroupMessage', { groupKey: chat.id, text });
-        return;
       } else if (chat.type === 'channel') {
         eventBus.emit('sendChannelMessage', { channelKey: chat.id, text });
-        return;
-      } else if (chat.type === 'saved') peerId = 'me';
-
-      messageHandler.sendMessage(peerId, text);
-      eventBus.emit('messageSent', { peerId, text });
+      } else {
+        const peerId = chat.type === 'saved' ? 'me' : chat.id;
+        messageHandler.sendMessage(peerId, text);
+        eventBus.emit('messageSent', { peerId, text });
+      }
     });
-
-    if (input) input.value = '';
   });
 
-  // Остальные обработчики
   eventBus.on('sendMessage', async ({ peerId, text }) => {
     const sent = await messageHandler.sendMessage(peerId, text);
     eventBus.emit('messageSent', { peerId, text, sent });
     if (!sent) eventBus.emit('messageQueued', { peerId, text });
   });
 
-  eventBus.on('sendFile', async ({ peerId, file }) => {
-    await messageHandler.sendFile(peerId, file);
+  eventBus.on('sendFile', async ({ file }) => {
+    eventBus.emit('getCurrentChat');
+    eventBus.once('currentChat', async (chat) => {
+      if (!chat) return;
+      const peerId = chat.type === 'saved' ? 'me' : chat.id;
+      await messageHandler.sendFile(peerId, file);
+    });
   });
 
-  eventBus.on('sendVoice', async ({ peerId, audioBase64, duration }) => {
-    await messageHandler.sendVoice(peerId, audioBase64, duration);
+  eventBus.on('sendVoice', async ({ audioBase64, duration }) => {
+    eventBus.emit('getCurrentChat');
+    eventBus.once('currentChat', async (chat) => {
+      if (!chat) return;
+      const peerId = chat.type === 'saved' ? 'me' : chat.id;
+      await messageHandler.sendVoice(peerId, audioBase64, duration);
+    });
   });
 
   eventBus.on('getChatHistory', async ({ peerId }) => {
@@ -116,4 +113,4 @@ export function initMessageHandlers(eventBus) {
   p2pNetwork.onPeerEvent((event) => eventBus.emit('peerConnection', event));
 
   console.log('📨 Message handlers инициализированы');
-  }
+              }
