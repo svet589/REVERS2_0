@@ -19,6 +19,9 @@
  * Copyright (C) 2025 svet589 <https://github.com/svet589>
  */
 // src/app.js — точка входа REVERS Messenger v3.2
+// Лицензия: GNU GPL v3
+// Разработчик: https://github.com/svet589
+
 import { EventBus } from './handlers/eventBus.js';
 import { initMessageHandlers } from './handlers/messageHandlers.js';
 import { initCallHandlers } from './handlers/callHandlers.js';
@@ -126,9 +129,19 @@ class REVERSApp {
 
     $('#addContactBtn')?.addEventListener('click', () => this.eventBus.emit('openModal', 'addContactModal'));
 
-    $('#sendBtn')?.addEventListener('click', () => this.eventBus.emit('sendCurrentMessage'));
+    $('#sendBtn')?.addEventListener('click', () => {
+      const text = $('#messageInput')?.value?.trim();
+      if (!text) return;
+      this.eventBus.emit('sendCurrentMessage', { text });
+      $('#messageInput').value = '';
+    });
     $('#messageInput')?.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') this.eventBus.emit('sendCurrentMessage');
+      if (e.key === 'Enter') {
+        const text = e.target.value?.trim();
+        if (!text) return;
+        this.eventBus.emit('sendCurrentMessage', { text });
+        e.target.value = '';
+      }
     });
 
     $('#stickerToggleBtn')?.addEventListener('click', () => this.eventBus.emit('toggleStickers'));
