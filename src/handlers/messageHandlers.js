@@ -22,7 +22,7 @@
 import messageHandler from '../core/message-handler.js';
 import p2pNetwork from '../core/p2p-network.js';
 import identity from '../core/identity.js';
-import { MESSAGE_STATUS, UI } from '../utils/constants.js';
+import { UI } from '../utils/constants.js';
 import { getRaw, setRaw, remove } from '../utils/storage.js';
 
 export function initMessageHandlers(eventBus) {
@@ -43,6 +43,35 @@ export function initMessageHandlers(eventBus) {
     eventBus.emit('chatsUpdated');
   });
 
+  // Отправка сообщения — слушаем sendCurrentMessage
+  eventBus.on('sendCurrentMessage', () => {
+    const input = document.getElementById('messageInput');
+    const text = input?.value?.trim();
+    if (!text) return;
+
+    // Получаем текущий чат из ChatScreen
+    eventBus.emit('getCurrentChat');
+    eventBus.once('currentChat', (chat) => {
+      if (!chat) return;
+
+      let peerId = 'me';
+      if (chat.type === 'contact') peerId = chat.id;
+      else if (chat.type === 'group') {
+        eventBus.emit('sendGroupMessage', { groupKey: chat.id, text });
+        return;
+      } else if (chat.type === 'channel') {
+        eventBus.emit('sendChannelMessage', { channelKey: chat.id, text });
+        return;
+      } else if (chat.type === 'saved') peerId = 'me';
+
+      messageHandler.sendMessage(peerId, text);
+      eventBus.emit('messageSent', { peerId, text });
+    });
+
+    if (input) input.value = '';
+  });
+
+  // Остальные обработчики
   eventBus.on('sendMessage', async ({ peerId, text }) => {
     const sent = await messageHandler.sendMessage(peerId, text);
     eventBus.emit('messageSent', { peerId, text, sent });
@@ -55,10 +84,6 @@ export function initMessageHandlers(eventBus) {
 
   eventBus.on('sendVoice', async ({ peerId, audioBase64, duration }) => {
     await messageHandler.sendVoice(peerId, audioBase64, duration);
-  });
-
-  eventBus.on('sendTyping', ({ peerId }) => {
-    messageHandler.sendTyping(peerId);
   });
 
   eventBus.on('getChatHistory', async ({ peerId }) => {
@@ -76,49 +101,19 @@ export function initMessageHandlers(eventBus) {
     eventBus.emit('historyCleared', { peerId });
   });
 
-  eventBus.on('deleteMessage', async ({ peerId, msgIdx }) => {
-    const history = await messageHandler.getChatHistory(peerId);
-    if (history && history[msgIdx]) {
-      history.splice(msgIdx, 1);
-      await messageHandler.clearChatHistory(peerId);
-      for (const msg of history) {
-        await messageHandler.sendMessage(peerId, msg.text);
-      }
-      eventBus.emit('messageDeleted', { peerId, msgIdx });
-    }
-  });
-
-  // Черновики
   eventBus.on('saveDraft', ({ chatId, text }) => {
-    if (text && text.trim()) {
-      setRaw(UI.DRAFT_PREFIX + chatId, text);
-    } else {
-      remove(UI.DRAFT_PREFIX + chatId);
-    }
+    text?.trim() ? setRaw(UI.DRAFT_PREFIX + chatId, text) : remove(UI.DRAFT_PREFIX + chatId);
   });
 
   eventBus.on('loadDraft', ({ chatId }) => {
-    const draft = getRaw(UI.DRAFT_PREFIX + chatId);
-    eventBus.emit('draftLoaded', { chatId, draft: draft || '' });
+    eventBus.emit('draftLoaded', { chatId, draft: getRaw(UI.DRAFT_PREFIX + chatId) || '' });
   });
 
-  // Подключение пиров
-  eventBus.on('connectToPeer', ({ peerId }) => {
-    p2pNetwork.connectToPeer(peerId);
-  });
+  eventBus.on('connectToPeer', ({ peerId }) => p2pNetwork.connectToPeer(peerId));
+  eventBus.on('acceptPeer', ({ peerId, signal }) => p2pNetwork.acceptPeer(peerId, signal));
+  eventBus.on('applySignal', ({ peerId, signal }) => p2pNetwork.applySignal(peerId, signal));
 
-  eventBus.on('acceptPeer', ({ peerId, signal }) => {
-    p2pNetwork.acceptPeer(peerId, signal);
-  });
-
-  eventBus.on('applySignal', ({ peerId, signal }) => {
-    p2pNetwork.applySignal(peerId, signal);
-  });
-
-  // Статус соединения
-  p2pNetwork.onPeerEvent((event) => {
-    eventBus.emit('peerConnection', event);
-  });
+  p2pNetwork.onPeerEvent((event) => eventBus.emit('peerConnection', event));
 
   console.log('📨 Message handlers инициализированы');
-              }
+  }
