@@ -17,6 +17,26 @@ export class ChatScreen {
     this.voiceRecorder = null;
     this.typingTimeout = null;
     this.unsubscribers = [];
+    this._bindInternalEvents();
+  }
+
+  _bindInternalEvents() {
+    this.unsubscribers.push(
+      this.eventBus.on('newMessage', (msg) => {
+        if (this.currentChat && (msg.room === this.currentChat.id || msg.from === this.currentChat.id)) {
+          this._appendMessage(msg);
+        }
+      }),
+      this.eventBus.on('peerConnection', (event) => {
+        if (event.peerId === this.currentChat?.id) this._updateConnectionIcon();
+      }),
+      this.eventBus.on('messageSent', () => {
+        if (this.currentChat) this._loadHistory();
+      }),
+      this.eventBus.on('getCurrentChat', () => {
+        this.eventBus.emit('currentChat', this.currentChat);
+      })
+    );
   }
 
   render(chat) {
@@ -35,27 +55,6 @@ export class ChatScreen {
 
     this._updateConnectionIcon();
     this._loadHistory();
-    this._bindEvents();
-  }
-
-  _bindEvents() {
-    this.unsubscribers.forEach(u => u());
-    this.unsubscribers = [];
-
-    this.unsubscribers.push(
-      this.eventBus.on('newMessage', (msg) => {
-        if (msg.room === this.currentChat?.id || msg.from === this.currentChat?.id) {
-          this._appendMessage(msg);
-        }
-      }),
-      this.eventBus.on('peerConnection', (event) => {
-        if (event.peerId === this.currentChat?.id) this._updateConnectionIcon();
-      }),
-      this.eventBus.on('messageSent', () => this._loadHistory()),
-      this.eventBus.on('getCurrentChat', () => {
-        this.eventBus.emit('currentChat', this.currentChat);
-      })
-    );
   }
 
   async _loadHistory() {
@@ -133,4 +132,4 @@ export class ChatScreen {
     this.unsubscribers.forEach(u => u());
     this.unsubscribers = [];
   }
-      }
+                      }
