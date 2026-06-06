@@ -102,80 +102,7 @@ class REVERSApp {
     console.log('🚀 REVERS Messenger v3.2 запущен');
   }
 
-  _bindGlobalEvents() {
-    setTimeout(() => {
-      $('#menuBtn')?.addEventListener('click', () => this.screens.sidebar?.open());
-      $('#overlay')?.addEventListener('click', () => this.screens.sidebar?.close());
-      $('#backBtn')?.addEventListener('click', () => this.eventBus.emit('navigate:chats'));
-      $('#chatMenuBtn')?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.eventBus.emit('toggleChatMenu');
-      });
-
-      $('#searchChatsBtn')?.addEventListener('click', () => {
-        $('#searchChatsBar')?.classList.toggle('hidden');
-        $('#searchChatsInput')?.focus();
-      });
-      $('#searchChatsCloseBtn')?.addEventListener('click', () => {
-        $('#searchChatsBar')?.classList.add('hidden');
-        const input = $('#searchChatsInput');
-        if (input) input.value = '';
-        this.eventBus.emit('getAllChats');
-      });
-      $('#searchChatsInput')?.addEventListener('input', (e) => {
-        this.eventBus.emit('searchChats', { query: e.target.value });
-      });
-
-      $('#addContactBtn')?.addEventListener('click', () => this.eventBus.emit('openModal', 'addContactModal'));
-
-      $('#sendBtn')?.addEventListener('click', () => {
-        const text = $('#messageInput')?.value?.trim();
-        if (text) {
-          this.eventBus.emit('sendCurrentMessage', { text });
-          $('#messageInput').value = '';
-        }
-      });
-      $('#messageInput')?.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          const text = e.target.value?.trim();
-          if (text) {
-            this.eventBus.emit('sendCurrentMessage', { text });
-            e.target.value = '';
-          }
-        }
-      });
-
-      $('#stickerToggleBtn')?.addEventListener('click', () => this.eventBus.emit('toggleStickers'));
-      $('#voiceRecordBtn')?.addEventListener('click', () => this.eventBus.emit('toggleVoiceRecord'));
-
-      $('#fileInput')?.addEventListener('change', (e) => {
-        if (e.target.files[0]) {
-          this.eventBus.emit('sendFile', { file: e.target.files[0] });
-          e.target.value = '';
-        }
-      });
-
-      $('#replyBarClose')?.addEventListener('click', () => $('#replyBar')?.classList.add('hidden'));
-      $('#unpinBtn')?.addEventListener('click', () => this.eventBus.emit('unpinMessage'));
-
-      document.querySelectorAll('[id$="Btn"]').forEach(btn => {
-        if (btn.id.startsWith('close') || btn.id.startsWith('cancel')) {
-          btn.addEventListener('click', () => {
-            document.querySelectorAll('.modal').forEach(m => m.classList.remove('active'));
-          });
-        }
-      });
-
-      document.addEventListener('click', () => {
-        document.querySelectorAll('.chat-dropdown').forEach(d => d.classList.add('hidden'));
-      });
-
-      $('#imageViewer')?.addEventListener('click', () => $('#imageViewer')?.classList.remove('active'));
-
-      console.log('🔘 Глобальные события привязаны');
-    }, 500);
-  }
-
+  
   _showScreen(name) {
     Object.values(this.screens).forEach(s => s?.hide?.());
     document.querySelectorAll('.modal').forEach(m => m.classList.remove('active'));
@@ -186,6 +113,78 @@ class REVERSApp {
     }
   }
 
+  _bindGlobalEvents() {
+    $('#menuBtn')?.addEventListener('click', () => this.screens.sidebar?.open());
+    $('#overlay')?.addEventListener('click', () => this.screens.sidebar?.close());
+    $('#backBtn')?.addEventListener('click', () => this.eventBus.emit('navigate:chats'));
+    $('#chatMenuBtn')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.eventBus.emit('toggleChatMenu');
+    });
+
+    $('#searchChatsBtn')?.addEventListener('click', () => {
+        $('#searchChatsBar')?.classList.toggle('hidden');
+        $('#searchChatsInput')?.focus();
+    });
+    $('#searchChatsCloseBtn')?.addEventListener('click', () => {
+        $('#searchChatsBar')?.classList.add('hidden');
+        const input = $('#searchChatsInput');
+        if (input) input.value = '';
+        this.eventBus.emit('getAllChats');
+    });
+    $('#searchChatsInput')?.addEventListener('input', (e) => {
+        this.eventBus.emit('searchChats', { query: e.target.value });
+    });
+
+    $('#addContactBtn')?.addEventListener('click', () => this.eventBus.emit('openModal', 'addContactModal'));
+
+    $('#sendBtn')?.addEventListener('click', () => {
+        const text = $('#messageInput')?.value?.trim();
+        if (text) {
+            this.eventBus.emit('sendCurrentMessage', { text });
+            $('#messageInput').value = '';
+        }
+    });
+    $('#messageInput')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            const text = e.target.value?.trim();
+            if (text) {
+                this.eventBus.emit('sendCurrentMessage', { text });
+                e.target.value = '';
+            }
+        }
+    });
+
+    $('#stickerToggleBtn')?.addEventListener('click', () => this.eventBus.emit('toggleStickers'));
+    $('#voiceRecordBtn')?.addEventListener('click', () => this.eventBus.emit('toggleVoiceRecord'));
+
+    $('#fileInput')?.addEventListener('change', (e) => {
+        if (e.target.files[0]) {
+            this.eventBus.emit('sendFile', { file: e.target.files[0] });
+            e.target.value = '';
+        }
+    });
+
+    $('#replyBarClose')?.addEventListener('click', () => $('#replyBar')?.classList.add('hidden'));
+    $('#unpinBtn')?.addEventListener('click', () => this.eventBus.emit('unpinMessage'));
+
+    document.querySelectorAll('[id$="Btn"]').forEach(btn => {
+        if (btn.id.startsWith('close') || btn.id.startsWith('cancel')) {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.modal').forEach(m => m.classList.remove('active'));
+            });
+        }
+    });
+
+    document.addEventListener('click', () => {
+        document.querySelectorAll('.chat-dropdown').forEach(d => d.classList.add('hidden'));
+    });
+
+    $('#imageViewer')?.addEventListener('click', () => $('#imageViewer')?.classList.remove('active'));
+
+    console.log('🔘 Глобальные события привязаны');
+                                                }
+  
   _showChat(chat) {
     this._showScreen('chat');
     this.screens.chat.render(chat);
