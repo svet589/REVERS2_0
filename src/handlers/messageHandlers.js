@@ -39,14 +39,11 @@ export function initMessageHandlers(eventBus) {
 
   messageHandler.onChatUpdate(() => eventBus.emit('chatsUpdated'));
 
-  // Отправка сообщения из поля ввода
   eventBus.on('sendCurrentMessage', ({ text }) => {
     if (!text) return;
-
     eventBus.emit('getCurrentChat');
     eventBus.once('currentChat', (chat) => {
       if (!chat) return;
-
       if (chat.type === 'group') {
         eventBus.emit('sendGroupMessage', { groupKey: chat.id, text });
       } else if (chat.type === 'channel') {
@@ -112,5 +109,5 @@ export function initMessageHandlers(eventBus) {
 
   p2pNetwork.onPeerEvent((event) => eventBus.emit('peerConnection', event));
 
-  console.log('📨 Message handlers инициализированы');
-              }
+  console.log('📨 Message handlers ready');
+      }
