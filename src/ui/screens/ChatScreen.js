@@ -1,4 +1,4 @@
-// src/ui/screens/ChatScreen.js — экран чата
+// src/ui/screens/ChatScreen.js
 import { MessageBubble } from '../components/MessageBubble.js';
 import { CONNECTION_ICONS, UI } from '../../utils/constants.js';
 import { createElement, clearElement, $, scrollToBottom } from '../../utils/dom.js';
@@ -26,7 +26,8 @@ export class ChatScreen {
     this._editingMessage = null;
 
     this.container?.classList.remove('hidden');
-    $('#chatName').textContent = chat.name;
+    const nameEl = $('#chatName');
+    if (nameEl) nameEl.textContent = chat.name || 'Чат';
 
     const draft = getRaw(UI.DRAFT_PREFIX + chat.id);
     const input = $('#messageInput');
@@ -38,6 +39,9 @@ export class ChatScreen {
   }
 
   _bindEvents() {
+    this.unsubscribers.forEach(u => u());
+    this.unsubscribers = [];
+
     this.unsubscribers.push(
       this.eventBus.on('newMessage', (msg) => {
         if (msg.room === this.currentChat?.id || msg.from === this.currentChat?.id) {
@@ -59,6 +63,9 @@ export class ChatScreen {
     if (!area) return;
     clearElement(area);
 
+    const peerId = this.currentChat?.type === 'saved' ? 'me' : this.currentChat?.id;
+    if (!peerId) return;
+
     this.eventBus.once('chatHistory', ({ history }) => {
       if (!history?.length) return;
 
@@ -76,8 +83,7 @@ export class ChatScreen {
       scrollToBottom(area);
     });
 
-    const peerId = this.currentChat?.type === 'saved' ? 'me' : this.currentChat?.id;
-    if (peerId) this.eventBus.emit('getChatHistory', { peerId });
+    this.eventBus.emit('getChatHistory', { peerId });
   }
 
   _appendMessage(msg) {
@@ -98,7 +104,7 @@ export class ChatScreen {
     if (!icon || !this.currentChat) return;
 
     this.eventBus.once('connectionStatus', ({ peerId, connected, relayCount }) => {
-      if (peerId === this.currentChat.id) {
+      if (peerId === this.currentChat?.id) {
         if (connected && relayCount >= 3) icon.textContent = CONNECTION_ICONS.relay3;
         else if (connected && relayCount === 2) icon.textContent = CONNECTION_ICONS.relay2;
         else if (connected) icon.textContent = CONNECTION_ICONS.direct;
@@ -109,16 +115,10 @@ export class ChatScreen {
   }
 
   _getMyId() {
-    try {
-      return JSON.parse(localStorage.getItem('revers_id') || '""');
-    } catch(e) {
-      return '';
-    }
+    try { return JSON.parse(localStorage.getItem('revers_id') || '""'); } catch(e) { return ''; }
   }
 
-  show() {
-    this.container?.classList.remove('hidden');
-  }
+  show() { this.container?.classList.remove('hidden'); }
 
   hide() {
     const text = $('#messageInput')?.value || '';
@@ -133,4 +133,4 @@ export class ChatScreen {
     this.unsubscribers.forEach(u => u());
     this.unsubscribers = [];
   }
-  }
+      }
