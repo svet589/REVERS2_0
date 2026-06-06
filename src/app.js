@@ -19,9 +19,6 @@
  * Copyright (C) 2025 svet589 <https://github.com/svet589>
  */
 // src/app.js — точка входа REVERS Messenger v3.2
-// Лицензия: GNU GPL v3
-// Разработчик: https://github.com/svet589
-
 import { EventBus } from './handlers/eventBus.js';
 import { initMessageHandlers } from './handlers/messageHandlers.js';
 import { initCallHandlers } from './handlers/callHandlers.js';
@@ -51,7 +48,6 @@ class REVERSApp {
     this.screens = {};
     this.modals = {};
     this.currentScreen = null;
-    this._bindGlobalEvents();
     this._init();
   }
 
@@ -100,78 +96,84 @@ class REVERSApp {
 
     this._showScreen('chats');
 
+    this._bindGlobalEvents();
+
     window.REVERSApp = this;
     console.log('🚀 REVERS Messenger v3.2 запущен');
   }
 
   _bindGlobalEvents() {
-    $('#menuBtn')?.addEventListener('click', () => this.screens.sidebar?.open());
-    $('#overlay')?.addEventListener('click', () => this.screens.sidebar?.close());
-    $('#backBtn')?.addEventListener('click', () => this.eventBus.emit('navigate:chats'));
-    $('#chatMenuBtn')?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.eventBus.emit('toggleChatMenu');
-    });
+    setTimeout(() => {
+      $('#menuBtn')?.addEventListener('click', () => this.screens.sidebar?.open());
+      $('#overlay')?.addEventListener('click', () => this.screens.sidebar?.close());
+      $('#backBtn')?.addEventListener('click', () => this.eventBus.emit('navigate:chats'));
+      $('#chatMenuBtn')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.eventBus.emit('toggleChatMenu');
+      });
 
-    $('#searchChatsBtn')?.addEventListener('click', () => {
-      $('#searchChatsBar')?.classList.toggle('hidden');
-      $('#searchChatsInput')?.focus();
-    });
-    $('#searchChatsCloseBtn')?.addEventListener('click', () => {
-      $('#searchChatsBar')?.classList.add('hidden');
-      const input = $('#searchChatsInput');
-      if (input) input.value = '';
-      this.eventBus.emit('getAllChats');
-    });
-    $('#searchChatsInput')?.addEventListener('input', (e) => {
-      this.eventBus.emit('searchChats', { query: e.target.value });
-    });
+      $('#searchChatsBtn')?.addEventListener('click', () => {
+        $('#searchChatsBar')?.classList.toggle('hidden');
+        $('#searchChatsInput')?.focus();
+      });
+      $('#searchChatsCloseBtn')?.addEventListener('click', () => {
+        $('#searchChatsBar')?.classList.add('hidden');
+        const input = $('#searchChatsInput');
+        if (input) input.value = '';
+        this.eventBus.emit('getAllChats');
+      });
+      $('#searchChatsInput')?.addEventListener('input', (e) => {
+        this.eventBus.emit('searchChats', { query: e.target.value });
+      });
 
-    $('#addContactBtn')?.addEventListener('click', () => this.eventBus.emit('openModal', 'addContactModal'));
+      $('#addContactBtn')?.addEventListener('click', () => this.eventBus.emit('openModal', 'addContactModal'));
 
-    $('#sendBtn')?.addEventListener('click', () => {
-      const text = $('#messageInput')?.value?.trim();
-      if (!text) return;
-      this.eventBus.emit('sendCurrentMessage', { text });
-      $('#messageInput').value = '';
-    });
-    $('#messageInput')?.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        const text = e.target.value?.trim();
-        if (!text) return;
-        this.eventBus.emit('sendCurrentMessage', { text });
-        e.target.value = '';
-      }
-    });
+      $('#sendBtn')?.addEventListener('click', () => {
+        const text = $('#messageInput')?.value?.trim();
+        if (text) {
+          this.eventBus.emit('sendCurrentMessage', { text });
+          $('#messageInput').value = '';
+        }
+      });
+      $('#messageInput')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          const text = e.target.value?.trim();
+          if (text) {
+            this.eventBus.emit('sendCurrentMessage', { text });
+            e.target.value = '';
+          }
+        }
+      });
 
-    $('#stickerToggleBtn')?.addEventListener('click', () => this.eventBus.emit('toggleStickers'));
-    $('#voiceRecordBtn')?.addEventListener('click', () => this.eventBus.emit('toggleVoiceRecord'));
+      $('#stickerToggleBtn')?.addEventListener('click', () => this.eventBus.emit('toggleStickers'));
+      $('#voiceRecordBtn')?.addEventListener('click', () => this.eventBus.emit('toggleVoiceRecord'));
 
-    $('#fileInput')?.addEventListener('change', (e) => {
-      if (e.target.files[0]) {
-        this.eventBus.emit('sendFile', { file: e.target.files[0] });
-        e.target.value = '';
-      }
-    });
+      $('#fileInput')?.addEventListener('change', (e) => {
+        if (e.target.files[0]) {
+          this.eventBus.emit('sendFile', { file: e.target.files[0] });
+          e.target.value = '';
+        }
+      });
 
-    $('#replyBarClose')?.addEventListener('click', () => $('#replyBar')?.classList.add('hidden'));
-    $('#unpinBtn')?.addEventListener('click', () => this.eventBus.emit('unpinMessage'));
+      $('#replyBarClose')?.addEventListener('click', () => $('#replyBar')?.classList.add('hidden'));
+      $('#unpinBtn')?.addEventListener('click', () => this.eventBus.emit('unpinMessage'));
 
-    document.querySelectorAll('[id$="Btn"]').forEach(btn => {
-      if (btn.id.startsWith('close') || btn.id.startsWith('cancel')) {
-        btn.addEventListener('click', () => {
-          document.querySelectorAll('.modal').forEach(m => m.classList.remove('active'));
-        });
-      }
-    });
+      document.querySelectorAll('[id$="Btn"]').forEach(btn => {
+        if (btn.id.startsWith('close') || btn.id.startsWith('cancel')) {
+          btn.addEventListener('click', () => {
+            document.querySelectorAll('.modal').forEach(m => m.classList.remove('active'));
+          });
+        }
+      });
 
-    document.addEventListener('click', () => {
-      document.querySelectorAll('.chat-dropdown').forEach(d => d.classList.add('hidden'));
-    });
+      document.addEventListener('click', () => {
+        document.querySelectorAll('.chat-dropdown').forEach(d => d.classList.add('hidden'));
+      });
 
-    $('#imageViewer')?.addEventListener('click', () => $('#imageViewer')?.classList.remove('active'));
+      $('#imageViewer')?.addEventListener('click', () => $('#imageViewer')?.classList.remove('active'));
 
-    console.log('🔘 Глобальные события привязаны');
+      console.log('🔘 Глобальные события привязаны');
+    }, 500);
   }
 
   _showScreen(name) {
