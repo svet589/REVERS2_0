@@ -27,21 +27,45 @@
     <link rel="stylesheet" href="styles.css">
     <meta name="copyright" content="REVERS Messenger - GNU GPL v3">
     <meta name="developer" content="https://github.com/svet589">
-    <!-- Загрузка libsodium через CDN для корректной работы криптографии -->
+    
+    <!-- libsodium для криптографии (ОСНОВНАЯ БИБЛИОТЕКА) -->
     <script src="https://cdn.jsdelivr.net/npm/libsodium-wrappers-sumo@0.7.13/dist/libsodium-wrappers-sumo.js"></script>
+    
+    <!-- pako для сжатия -->
+    <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
+    <script>window.pako = pako;</script>
+    
+    <!-- QRCode генерация -->
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+    
+    <!-- HTML5 QR Scanner -->
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    
+    <!-- Post-Quantum криптография (ML-KEM) -->
+    <script type="importmap">
+        {
+            "imports": {
+                "@noble/post-quantum/ml-kem-768": "https://cdn.jsdelivr.net/npm/@noble/post-quantum@0.3.0/ml-kem-768.js"
+            }
+        }
+    </script>
+    
     <script>
+        // Инициализация глобальных объектов для совместимости с импортами
         window.sodium = sodium;
+        window.sodiumLoaded = sodium.ready ? Promise.resolve() : sodium.ready;
+        
+        // Для совместимости с import()
+        window.libsodium = sodium;
     </script>
 </head>
 <body>
     <div id="app">
-        <!-- Заголовок -->
         <div class="app-header">
             <h1>REVERS</h1>
             <span id="dhtStatus">🌐</span>
         </div>
 
-        <!-- Экран чатов -->
         <div id="chatsScreen" class="screen">
             <div class="chats-header">
                 <button class="menu-btn" id="menuBtn">☰</button>
@@ -59,7 +83,6 @@
             <div class="chats-list" id="chatsList"></div>
         </div>
 
-        <!-- Экран чата -->
         <div id="chatScreen" class="screen hidden">
             <div class="chat-header">
                 <button class="back-btn" id="backBtn">←</button>
@@ -72,12 +95,10 @@
                 </div>
                 <button class="menu-btn" id="chatMenuBtn">⋮</button>
             </div>
-            <!-- Дропдауны -->
             <div class="chat-dropdown hidden" id="contactDropdown"></div>
             <div class="chat-dropdown hidden" id="groupDropdown"></div>
             <div class="chat-dropdown hidden" id="channelDropdown"></div>
             <div class="chat-dropdown hidden" id="savedDropdown"></div>
-            <!-- Поиск в чате -->
             <div class="search-bar hidden" id="searchInChatBar">
                 <input type="text" class="search-input" id="searchInChatInput" placeholder="Поиск...">
                 <span class="search-counter" id="searchCounter">0/0</span>
@@ -115,7 +136,6 @@
             </div>
         </div>
 
-        <!-- Экран тем -->
         <div id="topicsScreen" class="screen hidden">
             <div class="chat-header">
                 <button class="back-btn" id="topicsBackBtn">←</button>
@@ -125,7 +145,6 @@
             <div class="topics-list" id="topicsList"></div>
         </div>
 
-        <!-- Реакции -->
         <div class="reaction-panel hidden" id="reactionPanel">
             <div class="reaction-emoji" data-emoji="👍">👍</div>
             <div class="reaction-emoji" data-emoji="😂">😂</div>
@@ -135,7 +154,6 @@
             <div class="reaction-emoji" data-emoji="💯">💯</div>
         </div>
 
-        <!-- Контекстное меню -->
         <div class="context-menu hidden" id="contextMenu">
             <button class="dropdown-item" id="ctxEdit">✏️ Редактировать</button>
             <button class="dropdown-item" id="ctxReply">↩️ Ответить</button>
@@ -145,7 +163,6 @@
             <button class="dropdown-item danger" id="ctxDelete">🗑️ Удалить</button>
         </div>
 
-        <!-- Боковое меню -->
         <div class="sidebar" id="sidebar">
             <div class="sidebar-header">REVERS</div>
             <div class="sidebar-menu">
@@ -162,7 +179,6 @@
         </div>
         <div class="overlay" id="overlay"></div>
 
-        <!-- Модалки (пустые, заполняются из JS) -->
         <div class="modal" id="addContactModal"><h3>➕ Добавить</h3><input type="text" id="addContactIdInput" placeholder="ID"><button id="addContactConfirmBtn">Добавить</button><button id="addContactCloseBtn" class="secondary">Закрыть</button></div>
         <div class="modal" id="connectModal"><h3>🔗 Подключиться</h3><input type="text" id="peerIdInput" placeholder="ID"><input type="text" id="signalInput" placeholder="Сигнал"><button id="connectSendBtn">Подключиться</button><textarea id="mySignalOutput" readonly></textarea><button id="copySignalBtn" class="secondary">📋</button><button id="closeConnectBtn" class="secondary">Закрыть</button></div>
         <div class="modal" id="qrModal"><h3>🔳 QR</h3><canvas id="qrCanvas"></canvas><code id="inviteLink"></code><button id="copyInviteLinkBtn" class="secondary">📋</button><button id="shareInviteBtn" class="secondary">📤</button><button id="closeQrBtn" class="secondary">Закрыть</button></div>
@@ -181,10 +197,8 @@
         <div class="modal" id="createStickerPackModal"><h3>🎨 Пак</h3><input type="text" id="stickerPackNameInput" placeholder="Название"><button id="confirmStickerPackBtn">Создать</button><button id="cancelStickerPackBtn" class="secondary">Отмена</button></div>
         <div class="modal" id="addStickerModal"><h3>➕ Стикер</h3><input type="file" id="stickerFileInput" accept="image/*"><img id="stickerPreview"><input type="text" id="stickerEmojiInput" placeholder="Эмодзи"><button id="confirmStickerBtn">Добавить</button><button id="cancelStickerBtn" class="secondary">Отмена</button></div>
 
-        <!-- Просмотр изображений -->
         <div class="image-viewer" id="imageViewer"><img id="fullscreenImage"></div>
 
-        <!-- Звонок -->
         <div class="call-modal hidden" id="callModal">
             <div class="call-header"><span id="callPeerName">Звонок</span><span id="callDuration">00:00</span></div>
             <div class="call-video" id="callVideo"></div>
@@ -196,4 +210,4 @@
 
     <script src="bundle.js"></script>
 </body>
-                                                                          </html>
+    </html>
