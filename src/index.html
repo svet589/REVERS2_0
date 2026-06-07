@@ -27,6 +27,11 @@
     <link rel="stylesheet" href="styles.css">
     <meta name="copyright" content="REVERS Messenger - GNU GPL v3">
     <meta name="developer" content="https://github.com/svet589">
+    <!-- Загрузка libsodium через CDN для корректной работы криптографии -->
+    <script src="https://cdn.jsdelivr.net/npm/libsodium-wrappers-sumo@0.7.13/dist/libsodium-wrappers-sumo.js"></script>
+    <script>
+        window.sodium = sodium;
+    </script>
 </head>
 <body>
     <div id="app">
@@ -191,4 +196,4 @@
 
     <script src="bundle.js"></script>
 </body>
-                    </html>
+                                                                          </html>
