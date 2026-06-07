@@ -2,7 +2,7 @@
   "name": "revers-messenger",
   "version": "3.3.0",
   "scripts": {
-    "build": "npx esbuild src/app.js --bundle --outfile=src/bundle.js --format=iife --platform=browser",
+    "build": "npx esbuild src/app.js --bundle --outfile=src/bundle.js --format=iife --platform=browser --external:libsodium-wrappers --external:libsodium-wrappers-sumo --external:@noble/post-quantum --external:pako",
     "apk": "npm run build && npx cap sync android && cd android && ./gradlew assembleDebug"
   },
   "dependencies": {
