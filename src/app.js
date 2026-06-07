@@ -278,17 +278,72 @@ class REVERSApp {
   }
 
   _sendMessage() {
-    const i = document.getElementById('messageInput'); const t = i.value.trim();
+    const i = document.getElementById('messageInput');
+    const t = i.value.trim();
     if (!t || !this.currentChat) return;
-    i.style.transform = 'scale(0.98)'; setTimeout(() => i.style.transform = '', 100);
-    if (this._editingMessage) { this._editingMessage.text = t; this._editingMessage.edited = true; this._editingMessage = null; document.getElementById('editIndicator').classList.add('hidden'); this._renderMessages(this.currentChat); }
-    else if (this.currentChat.type === 'group') { REVERS.sendGroupMessage(this.currentChat.id, t); this._renderMessages(this.currentChat); }
-    else if (this.currentChat.type === 'saved') { REVERS.sendMessage('me', t); this._renderMessages(this.currentChat); }
-    else if (this.currentChat.type === 'channel') { REVERS.sendChannelMessage(this.currentChat.id, t); this._renderMessages(this.currentChat); }
-    else { REVERS.sendMessage(this.currentChat.id, t); this._renderMessages(this.currentChat); }
-    i.value = ''; this.replyTo = null; document.getElementById('replyBar').classList.add('hidden'); this._renderChatsList();
-  }
 
+    i.style.transform = 'scale(0.98)';
+    setTimeout(() => i.style.transform = '', 100);
+
+    // Редактирование
+    if (this._editingMessage) {
+        this._editingMessage.text = t;
+        this._editingMessage.edited = true;
+        this._editingMessage = null;
+        document.getElementById('editIndicator').classList.add('hidden');
+        this._renderMessages(this.currentChat);
+        i.value = '';
+        return;
+    }
+
+    // Отправка
+    let sent = false;
+    if (this.currentChat.type === 'saved') {
+        sent = REVERS.sendMessage('me', t);
+    } else if (this.currentChat.type === 'group') {
+        sent = REVERS.sendGroupMessage(this.currentChat.id, t);
+    } else if (this.currentChat.type === 'channel') {
+        sent = REVERS.sendChannelMessage(this.currentChat.id, t);
+    } else {
+        sent = REVERS.sendMessage(this.currentChat.id, t);
+    }
+
+    // Всегда показываем сообщение локально, даже если отправка не удалась
+    this._renderMessages(this.currentChat);
+    i.value = '';
+    this.replyTo = null;
+    document.getElementById('replyBar').classList.add('hidden');
+    this._renderChatsList();
+      }
+  
+  _renderMessages(chat) {
+    const area = document.getElementById('messagesArea');
+    area.innerHTML = '';
+    
+    let history = [];
+    if (chat.type === 'saved') {
+        // Берем историю напрямую из message-handler (синхронно)
+        history = REVERS.getChatHistory('me') || [];
+    } else if (chat.type === 'group') {
+        history = REVERS.getGroupHistory(chat.id) || [];
+    } else if (chat.type === 'channel') {
+        history = REVERS.getChannelHistory(chat.id) || [];
+    } else {
+        history = REVERS.getChatHistory(chat.id) || [];
+    }
+    
+    if (!history || history.length === 0) return;
+    
+    history.forEach((msg, idx) => {
+        const isOutgoing = msg.from === REVERS.getMyId();
+        const div = document.createElement('div');
+        div.className = `message ${isOutgoing ? 'outgoing' : 'incoming'}`;
+        div.innerHTML = `<div class="bubble"><div class="message-text">${this._esc(msg.text || '')}</div><div class="message-time">${new Date(msg.time).toLocaleTimeString()}</div></div>`;
+        area.appendChild(div);
+    });
+    area.scrollTop = area.scrollHeight;
+  }
+  
   _sendFile(file) { if (!this.currentChat) return; REVERS.sendFile(this.currentChat.id, file).then(() => this._renderMessages(this.currentChat)); }
   _createGroup() { const n = document.getElementById('groupNameInput').value.trim(); const t = document.getElementById('groupTypeSelect')?.value || 'chat'; if (!n) return; const g = REVERS.createGroup(n, t); this._closeAllModals(); this._openChat({ id: g.key, name: (t === 'forum' ? '📂 ' : '👥 ') + n, type: 'group' }); }
   _createChannel() { const n = document.getElementById('channelNameInput').value.trim(); if (!n) return; const k = REVERS.createChannel(n); this._closeAllModals(); this._openChat({ id: k, name: '📢 ' + n, type: 'channel' }); }
