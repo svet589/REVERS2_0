@@ -18,8 +18,10 @@
  *
  * Copyright (C) 2025 svet589 <https://github.com/svet589>
  */
+  // p2p-engine.js — главный API
 import identity from './identity.js';
 import p2pNetwork from './p2p-network.js';
+import cryptoModule from './crypto-module.js';
 import messageHandler from './message-handler.js';
 import callManager from './call-manager.js';
 import groupManager from './group-manager.js';
@@ -33,12 +35,15 @@ class P2PEngine {
 
   async init() {
     console.log('╔══════════════════════════╗');
-    console.log('║   REVERS ENGINE v1.3          ║');
+    console.log('║   REVERS ENGINE v3.2    ║');
     console.log('╚══════════════════════════╝');
+    await identity.ready();
+    await cryptoModule.ready();
     p2pNetwork.start();
     p2pNetwork.onMessage((msg) => {
       if (msg.type === 'call-signal') callManager.handleSignal(msg.from, msg);
       else if (msg.type === 'p2p-signal') messageHandler.handleIncoming(msg);
+      else if (msg.type === 'group_message') messageHandler.handleIncoming(msg);
       else messageHandler.handleIncoming(msg);
     });
     this.ready = true;
@@ -59,6 +64,7 @@ class P2PEngine {
   sendMessage(id, t) { return messageHandler.sendMessage(id, t); }
   sendFile(id, f) { return messageHandler.sendFile(id, f); }
   sendVoice(id, a, d) { return messageHandler.sendVoice(id, a, d); }
+  sendGift(id, g) { return messageHandler.sendGift(id, g); }
   async recordVoice() { return await messageHandler.recordVoice(); }
   async getChatHistory(id) { return await messageHandler.getChatHistory(id); }
   async getAllChats() { return await messageHandler.getAllChats(); }
