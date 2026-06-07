@@ -8,38 +8,52 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
+          
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        
       - name: Install Dependencies
         run: npm install
+        
       - name: Build Bundle
         run: npm run build
-      - name: Copy static assets
-        run: |
-          cp styles.css src/ 2>/dev/null || true
-          cp android-manifest.xml android/app/src/main/AndroidManifest.xml
+        
+      - name: Copy styles to src
+        run: cp styles.css src/ 2>/dev/null || true
+        
       - name: Init Capacitor
         run: |
           npx cap init REVERS com.revers.messenger --web-dir=src
           npx cap add android
-      - name: Generate Icons
+          
+      - name: Copy AndroidManifest (after Capacitor created android folder)
+        run: |
+          mkdir -p android/app/src/main
+          cp android-manifest.xml android/app/src/main/AndroidManifest.xml
+          
+      - name: Generate Icons (optional)
         run: npx capacitor-assets generate --iconBackgroundColor '#0F0F12' --iconBackgroundColorDark '#0F0F12' || true
+        
       - name: Sync Capacitor
         run: npx cap sync android
+        
       - name: Build APK
         run: |
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug
+          
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
