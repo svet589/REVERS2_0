@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>REVERS Messenger</title>
+    <link rel="stylesheet" href="styles.css">
+    <meta name="copyright" content="REVERS Messenger - GNU GPL v3">
+    <meta name="developer" content="https://github.com/svet589">
+
+    <!-- Криптография -->
+    <script src="https://cdn.jsdelivr.net/npm/libsodium-wrappers-sumo@0.7.13/dist/libsodium-wrappers-sumo.js"></script>
+    <!-- Сжатие -->
+    <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
+    <!-- QR-код -->
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+    <!-- Сканер QR -->
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <script>
+        window.pako = pako;
+        window.sodium = sodium;
+        window.sodiumLoaded = sodium.ready ? Promise.resolve() : sodium.ready;
+    </script>
+</head>
+<body>
+    <div id="app">
+        <!-- ЗАГОЛОВОК -->
+        <div class="app-header"><h1>REVERS</h1><span id="dhtStatus">🌐</span></div>
+
+        <!-- ГЛАВНЫЙ ЭКРАН (чаты) -->
+        <div id="chatsScreen" class="screen">
+            <div class="chats-header">
+                <button class="menu-btn" id="menuBtn">☰</button>
+                <div class="chats-title">Чаты</div>
+                <div style="display:flex;gap:8px;">
+                    <button class="action-icon" id="searchChatsBtn">🔍</button>
+                    <button class="action-icon" id="addContactBtn">➕</button>
+                </div>
+            </div>
+            <div class="search-bar hidden" id="searchChatsBar">
+                <input type="text" class="search-input" id="searchChatsInput" placeholder="Поиск...">
+                <button class="action-icon" id="searchChatsCloseBtn">✖</button>
+            </div>
+            <div class="chats-list" id="chatsList"></div>
+        </div>
+
+        <!-- ЭКРАН ЧАТА -->
+        <div id="chatScreen" class="screen hidden">
+            <div class="chat-header">
+                <button class="back-btn" id="backBtn">←</button>
+                <span class="current-chat-name" id="chatName">Чат</span>
+                <span id="typingIndicator"></span>
+                <div class="connection-status">
+                    <div class="status-led" id="statusLed"></div>
+                    <span id="statusText">Оффлайн</span>
+                </div>
+                <button class="menu-btn" id="chatMenuBtn">⋮</button>
+            </div>
+            <!-- Дропдауны чата -->
+            <div class="chat-dropdown hidden" id="contactDropdown">
+                <button class="dropdown-item" id="inviteToChatBtn">🔗 Пригласить</button>
+                <button class="dropdown-item" id="searchInChatBtn">🔍 Поиск</button>
+                <button class="dropdown-item" id="pinnedMsgBtn">📌 Закреп</button>
+                <button class="dropdown-item" id="securityBtn">🔐 Безопасность</button>
+                <div class="dropdown-divider"></div>
+                <button class="dropdown-item" id="callBtn">📹 Видеозвонок</button>
+                <button class="dropdown-item" id="audioCallBtn">📞 Аудиозвонок</button>
+                <button class="dropdown-item" id="connectPeerBtn">🔗 Подключиться</button>
+                <div class="dropdown-divider"></div>
+                <button class="dropdown-item danger" id="deleteChatBtn">🗑️ Удалить</button>
+                <button class="dropdown-item danger" id="clearHistoryBtn">🧹 Очистить</button>
+            </div>
+            <div class="chat-dropdown hidden" id="groupDropdown">
+                <button class="dropdown-item" id="inviteToChatBtnGroup">🔗 Пригласить</button>
+                <button class="dropdown-item" id="topicsMenuBtn">📂 Темы</button>
+                <button class="dropdown-item" id="searchInChatBtnGroup">🔍 Поиск</button>
+                <button class="dropdown-item" id="pinnedMsgBtnGroup">📌 Закреп</button>
+                <div class="dropdown-divider"></div>
+                <button class="dropdown-item" id="groupCallBtn">👥 Групповой звонок</button>
+                <button class="dropdown-item" id="createPollBtn">📊 Голосование</button>
+                <button class="dropdown-item" id="addAnnouncementBtn">📌 Объявление</button>
+                <div class="dropdown-divider"></div>
+                <button class="dropdown-item" id="groupSettingsBtn">⚙️ Настройки</button>
+                <div class="dropdown-divider"></div>
+                <button class="dropdown-item danger" id="deleteChatBtnGroup">🗑️ Удалить</button>
+            </div>
+            <div class="chat-dropdown hidden" id="channelDropdown">
+                <button class="dropdown-item" id="inviteToChatBtnChannel">🔗 Пригласить</button>
+                <button class="dropdown-item" id="searchInChatBtnChannel">🔍 Поиск</button>
+                <button class="dropdown-item" id="channelSettingsBtn">⚙️ Настройки</button>
+                <div class="dropdown-divider"></div>
+                <button class="dropdown-item danger" id="deleteChatBtnChannel">🗑️ Удалить</button>
+            </div>
+            <!-- Поиск в чате -->
+            <div class="search-bar hidden" id="searchInChatBar">
+                <input type="text" class="search-input" id="searchInChatInput" placeholder="Поиск...">
+                <span class="search-counter" id="searchCounter">0/0</span>
+                <button class="action-icon" id="searchPrevBtn">⬆️</button>
+                <button class="action-icon" id="searchNextBtn">⬇️</button>
+                <button class="action-icon" id="searchInChatCloseBtn">✖</button>
+                <!-- Фильтры по типу сообщений -->
+                <div class="filter-buttons" style="display:flex;gap:4px;margin-left:8px;">
+                    <button class="filter-btn" data-filter="all">Все</button>
+                    <button class="filter-btn" data-filter="file">📎</button>
+                    <button class="filter-btn" data-filter="image">🖼️</button>
+                    <button class="filter-btn" data-filter="link">🔗</button>
+                    <button class="filter-btn" data-filter="voice">🎤</button>
+                </div>
+            </div>
+            <!-- Закреп -->
+            <div id="pinnedMessage" class="pinned-message hidden"><div id="pinnedText"></div><button id="unpinBtn">✖</button></div>
+            <!-- Сообщения -->
+            <div class="messages-area" id="messagesArea"></div>
+            <!-- Ответ -->
+            <div class="reply-bar hidden" id="replyBar"><div class="reply-bar-text" id="replyBarText"></div><button class="reply-bar-close" id="replyBarClose">✖</button></div>
+            <!-- Редактирование -->
+            <div class="edit-indicator hidden" id="editIndicator">✏️ Редактирование</div>
+            <!-- Ввод -->
+            <div class="input-panel">
+                <button class="sticker-btn" id="stickerToggleBtn">😊</button>
+                <button class="sticker-btn" id="voiceRecordBtn">🎤</button>
+                <div class="message-input-wrapper">
+                    <input type="text" class="message-input" id="messageInput" placeholder="Сообщение...">
+                    <label class="file-label" for="fileInput">📎</label>
+                    <input type="file" id="fileInput">
+                    <button class="send-btn" id="sendBtn">➤</button>
+                </div>
+            </div>
+            <!-- Стикеры -->
+            <div class="sticker-panel hidden" id="stickerPanel">
+                <div class="sticker-tabs" id="stickerTabs"></div>
+                <div class="sticker-grid" id="stickerGrid"></div>
+                <div class="sticker-pack-actions hidden" id="stickerPackActions">
+                    <button id="addStickerToPackBtn">➕</button>
+                    <button id="deleteStickerPackBtn" class="danger">🗑️</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ЭКРАН ТЕМ ФОРУМА -->
+        <div id="topicsScreen" class="screen hidden">
+            <div class="chat-header"><button class="back-btn" id="topicsBackBtn">←</button><span class="current-chat-name">Темы</span><button class="action-icon" id="addTopicBtn">➕</button></div>
+            <div class="topics-list" id="topicsList"></div>
+        </div>
+
+        <!-- ЭКРАН АККАУНТА -->
+        <div id="accountScreen" class="screen hidden">
+            <div class="chat-header"><button class="back-btn" id="accountBackBtn">←</button><span class="current-chat-name">Аккаунт</span><button class="action-icon" id="accountQrBtn">🔳</button></div>
+            <div class="account-content">
+                <div class="account-avatar-container"><img id="accountAvatar" class="avatar-modal-img" src=""><div id="accountOnlineStatus" class="online-indicator"></div></div>
+                <h2 id="accountName">User</h2>
+                <p id="accountId">rev_...</p>
+                <p id="accountBio">Без описания</p>
+                <p id="accountDiamonds" style="color:#FFD700;font-size:1.1rem;">💎 0</p>
+                <div class="account-menu">
+                    <button class="menu-item" id="accountSettingsBtn">⚙️ Настройки</button>
+                    <button class="menu-item" id="accountEditProfileBtn">👤 Редактировать профиль</button>
+                    <button class="menu-item" id="accountGiftsBtn">🎁 Подарки</button>
+                    <button class="menu-item" id="accountStorageBtn">💾 Память</button>
+                    <button class="menu-item" id="accountPrivacyBtn">🔒 Политика</button>
+                    <button class="menu-item" id="accountSupportBtn">❓ Поддержка</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ЭКРАН РЕДАКТИРОВАНИЯ ПРОФИЛЯ -->
+        <div id="editProfileScreen" class="screen hidden">
+            <div class="chat-header"><button class="back-btn" id="editProfileBackBtn">←</button><span class="current-chat-name">Редактировать профиль</span></div>
+            <div class="edit-profile-content">
+                <div style="text-align:center;margin:20px 0;">
+                    <img id="editProfileAvatar" class="avatar-modal-img" src="" style="width:100px;height:100px;">
+                    <button id="editProfileChangeAvatarBtn" class="secondary" style="margin-top:8px;">📷 Сменить аватар</button>
+                    <input type="file" id="editProfileAvatarInput" accept="image/*" style="display:none;">
+                </div>
+                <input type="text" id="editProfileName" placeholder="Имя" style="width:100%;background:#0F0F12;border:none;border-radius:12px;padding:12px;color:white;margin:8px 0;">
+                <textarea id="editProfileBio" placeholder="О себе" rows="3" style="width:100%;background:#0F0F12;border:none;border-radius:12px;padding:12px;color:white;margin:8px 0;resize:none;"></textarea>
+                <button id="editProfileSaveBtn" style="background:#E63946;border:none;padding:12px;border-radius:24px;color:white;width:100%;font-weight:bold;cursor:pointer;">💾 Сохранить</button>
+            </div>
+        </div>
+
+        <!-- ЭКРАН НАСТРОЕК -->
+        <div id="settingsScreen" class="screen hidden">
+            <div class="chat-header"><button class="back-btn" id="settingsBackBtn">←</button><span class="current-chat-name">Настройки</span></div>
+            <div class="settings-content">
+                <div class="setting-row"><span class="setting-label">🌓 Тема</span><select id="themeSelect"><option value="dark">Тёмная</option><option value="light">Светлая</option></select></div>
+                <div class="setting-row"><span class="setting-label">🔊 Звуки</span><div id="soundToggle" class="toggle-switch active"></div></div>
+                <div class="setting-row"><span class="setting-label">📞 Входящие звонки</span><div id="callsToggle" class="toggle-switch active"></div></div>
+                <div class="setting-row"><span class="setting-label">💾 Офлайн-режим</span><div id="offlineToggle" class="toggle-switch active"></div></div>
+                <div class="setting-divider"></div>
+                <button class="menu-item" id="settingsStorageBtn">💾 Память</button>
+                <button class="menu-item" id="settingsExportBtn">📤 Экспорт данных</button>
+            </div>
+        </div>
+
+        <!-- ЭКРАН ПОЛИТИКИ КОНФИДЕНЦИАЛЬНОСТИ -->
+        <div id="privacyScreen" class="screen hidden">
+            <div class="chat-header"><button class="back-btn" id="privacyBackBtn">←</button><span class="current-chat-name">Политика конфиденциальности</span></div>
+            <div class="privacy-content">
+                <h2>Политика конфиденциальности REVERS</h2>
+                <p><strong>REVERS Messenger</strong> — децентрализованный P2P-мессенджер с открытым исходным кодом. Мы не собираем, не храним и не передаём ваши персональные данные третьим лицам.</p>
+                <h3>1. Какие данные мы НЕ собираем</h3>
+                <p>REVERS не собирает: номера телефонов, адресные книги, список контактов, IP-адреса, геолокацию, историю посещений, историю сообщений, метаданные звонков, информацию об устройстве, серийные номера, рекламные идентификаторы. Ничего из перечисленного не покидает ваше устройство.</p>
+                <h3>2. Как работает шифрование</h3>
+                <p>Все сообщения шифруются сквозным методом (E2EE) с использованием пост-квантовой криптографии: X25519 + ML-KEM-768 для обмена ключами и ChaCha20-Poly1305 для шифрования канала. Ключи шифрования хранятся только на устройствах участников переписки. REVERS не имеет доступа к содержимому сообщений.</p>
+                <h3>3. Где хранятся данные</h3>
+                <p>Все данные хранятся исключительно на вашем устройстве. REVERS не использует централизованные серверы для хранения сообщений, медиафайлов или профилей. Сообщения передаются напрямую между устройствами (P2P) или через децентрализованную сеть ретрансляторов («Паутина»), где каждый узел видит только зашифрованный фрагмент.</p>
+                <h3>4. Передача данных третьим лицам</h3>
+                <p>REVERS не передаёт никакие данные государственным органам, рекламным сетям, аналитическим компаниям или иным третьим лицам. У нас нет данных для передачи.</p>
+                <h3>5. Прозрачность</h3>
+                <p>Исходный код REVERS полностью открыт и доступен для аудита на GitHub: <a href="https://github.com/svet589/REVERS2_0" target="_blank">github.com/svet589/REVERS2_0</a>. Проект распространяется под лицензией GNU AGPL v3, что гарантирует свободу использования, модификации и распространения.</p>
+                <p><em>Последнее обновление: 13 июня 2025 года</em></p>
+            </div>
+        </div>
+
+        <!-- ЭКРАН ПАМЯТИ -->
+        <div id="storageScreen" class="screen hidden">
+            <div class="chat-header"><button class="back-btn" id="storageBackBtn">←</button><span class="current-chat-name">Память</span></div>
+            <div class="storage-content" id="storageContent"></div>
+        </div>
+
+        <!-- ЭКРАН "О НАС" -->
+        <div id="aboutScreen" class="screen hidden">
+            <div class="chat-header"><button class="back-btn" id="aboutBackBtn">←</button><span class="current-chat-name">О нас</span></div>
+            <div class="about-content">
+                <h2>REVERS Messenger</h2>
+                <p><strong>Версия:</strong> 3.4</p>
+                <p>Первый в мире P2P-мессенджер с пост-квантовым шифрованием, луковой маршрутизацией и нулевым доверием.</p>
+                <p><strong>Стек технологий:</strong> JavaScript, WebRTC, X25519, ML-KEM-768, ChaCha20-Poly1305, Hyperswarm, Capacitor</p>
+                <p><strong>Разработчик:</strong> svet589</p>
+                <p><strong>Лицензия:</strong> GNU AGPL v3</p>
+                <p><strong>GitHub:</strong> <a href="https://github.com/svet589/REVERS2_0" target="_blank">github.com/svet589/REVERS2_0</a></p>
+                <p>Сделано с ненавистью к централизованным сервисам.</p>
+            </div>
+        </div>
+
+        <!-- ЭКРАН ПОДДЕРЖКИ (FAQ) -->
+        <div id="supportScreen" class="screen hidden">
+            <div class="chat-header"><button class="back-btn" id="supportBackBtn">←</button><span class="current-chat-name">Поддержка</span></div>
+            <div class="support-content">
+                <h2>❓ Часто задаваемые вопросы</h2>
+
+                <h3>👤 Аккаунт и профиль</h3>
+                <details><summary>Как создать аккаунт?</summary><p>Аккаунт создаётся автоматически при первом запуске. Вам не нужен номер телефона или email.</p></details>
+                <details><summary>Как изменить имя и аватар?</summary><p>Зайдите в Аккаунт → Редактировать профиль.</p></details>
+                <details><summary>Где найти мой ID?</summary><p>На экране Аккаунта или в боковом меню → QR.</p></details>
+
+                <h3>💬 Сообщения и чаты</h3>
+                <details><summary>Как отправить сообщение?</summary><p>Откройте чат, введите текст и нажмите ➤.</p></details>
+                <details><summary>Как отправить файл?</summary><p>Нажмите 📎 в поле ввода и выберите файл.</p></details>
+                <details><summary>Как записать голосовое?</summary><p>Зажмите кнопку 🎤 и говорите. Отпустите для отправки.</p></details>
+                <details><summary>Как удалить сообщение?</summary><p>Долгое нажатие на сообщение → Удалить.</p></details>
+                <details><summary>Почему сообщения не доходят?</summary><p>Собеседник должен быть в сети. Сообщения доставляются через P2P.</p></details>
+
+                <h3>👥 Группы и каналы</h3>
+                <details><summary>Как создать группу?</summary><p>Боковое меню → Группы → Создать.</p></details>
+                <details><summary>Как пригласить в группу?</summary><p>В меню чата (⋮) → Пригласить.</p></details>
+                <details><summary>Чем канал отличается от группы?</summary><p>В канале пишут только администраторы.</p></details>
+
+                <h3>🔒 Безопасность и приватность</h3>
+                <details><summary>Насколько безопасен REVERS?</summary><p>Используется пост-квантовое шифрование X25519 + ML-KEM-768 + ChaCha20-Poly1305.</p></details>
+                <details><summary>Где хранятся мои сообщения?</summary><p>Только на вашем устройстве. Серверов нет.</p></details>
+                <details><summary>Может ли кто-то прочитать мои сообщения?</summary><p>Нет. Даже разработчик не имеет доступа к переписке.</p></details>
+
+                <h3>📹 Звонки</h3>
+                <details><summary>Как позвонить?</summary><p>В меню чата (⋮) → Видеозвонок или Аудиозвонок.</p></details>
+                <details><summary>Сколько участников в групповом звонке?</summary><p>До 10 человек.</p></details>
+
+                <h3>📞 Контакты</h3>
+                <p><strong>Telegram-канал:</strong> <a href="https://t.me/revers_messenger" target="_blank">t.me/revers_messenger</a></p>
+                <p><strong>GitHub Issues:</strong> <a href="https://github.com/svet589/REVERS2_0/issues" target="_blank">github.com/svet589/REVERS2_0/issues</a></p>
+                <button id="supportReportBugBtn" style="background:#E63946;border:none;padding:10px;border-radius:20px;color:white;width:100%;cursor:pointer;margin-top:12px;">🐛 Сообщить об ошибке</button>
+            </div>
+        </div>
+
+        <!-- БОКОВОЕ МЕНЮ -->
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-header">REVERS</div>
+            <div class="sidebar-menu">
+                <button class="menu-item" id="accountMenuBtn">👤 Аккаунт</button>
+                <button class="menu-item" id="savedMenuBtn">📔 Сохранённые</button>
+                <button class="menu-item" id="groupsSidebarBtn">👥 Группы</button>
+                <button class="menu-item" id="channelsSidebarBtn">📢 Каналы</button>
+                <button class="menu-item" id="settingsMenuBtn">⚙️ Настройки</button>
+                <button class="menu-item" id="scanMenuBtn">📷 Сканировать QR</button>
+                <button class="menu-item" id="storageMenuBtn">💾 Память</button>
+                <button class="menu-item" id="privacyMenuBtn">🔒 Политика</button>
+                <button class="menu-item" id="supportSidebarBtn">❓ Поддержка</button>
+                <button class="menu-item" id="aboutMenuBtn">ℹ️ О нас</button>
+            </div>
+        </div>
+        <div class="overlay" id="overlay"></div>
+
+        <!-- РЕАКЦИИ -->
+        <div class="reaction-panel hidden" id="reactionPanel">
+            <div class="reaction-emoji" data-emoji="👍">👍</div><div class="reaction-emoji" data-emoji="😂">😂</div><div class="reaction-emoji" data-emoji="❤️">❤️</div><div class="reaction-emoji" data-emoji="😮">😮</div><div class="reaction-emoji" data-emoji="🔥">🔥</div><div class="reaction-emoji" data-emoji="💯">💯</div>
+        </div>
+
+        <!-- КОНТЕКСТНОЕ МЕНЮ -->
+        <div class="context-menu hidden" id="contextMenu">
+            <button class="dropdown-item" id="ctxEdit">✏️ Редактировать</button>
+            <button class="dropdown-item" id="ctxReply">↩️ Ответить</button>
+            <button class="dropdown-item" id="ctxForward">↗️ Переслать</button>
+            <button class="dropdown-item" id="ctxPin">📌 Закрепить</button>
+            <button class="dropdown-item" id="ctxCopy">📋 Копировать</button>
+            <div class="dropdown-divider"></div>
+            <button class="dropdown-item danger" id="ctxDelete">🗑️ Удалить у себя</button>
+            <button class="dropdown-item danger" id="ctxDeleteForAll">🗑️ Удалить для всех</button>
+        </div>
+
+        <!-- МОДАЛКИ -->
+        <div class="modal" id="addContactModal"><h3>➕ Добавить</h3><input type="text" id="addContactIdInput" placeholder="ID"><button id="addContactConfirmBtn">Добавить</button><button id="addContactCloseBtn" class="secondary">Закрыть</button></div>
+        <div class="modal" id="connectModal"><h3>🔗 Подключиться</h3><input type="text" id="peerIdInput" placeholder="ID"><input type="text" id="signalInput" placeholder="Сигнал"><button id="connectSendBtn">Подключиться</button><textarea id="mySignalOutput" readonly></textarea><button id="copySignalBtn" class="secondary">📋</button><button id="closeConnectBtn" class="secondary">Закрыть</button></div>
+        <div class="modal" id="qrModal"><h3>🔳 QR</h3><canvas id="qrCanvas"></canvas><code id="inviteLink"></code><button id="copyInviteLinkBtn" class="secondary">📋</button><button id="shareInviteBtn" class="secondary">📤</button><button id="closeQrBtn" class="secondary">Закрыть</button></div>
+        <div class="modal" id="scannerModal"><h3>📷 Сканер</h3><div id="scannerContainer"></div><button id="stopScannerBtn" class="secondary">Отмена</button></div>
+        <div class="modal" id="browserModal"><h3>🌐 Браузер</h3><input type="text" id="browserUrlInput" placeholder="https://..."><button id="browserGoBtn">Открыть</button><button id="closeBrowserBtn" class="secondary">Закрыть</button></div>
+        <div class="modal" id="groupsModal"><h3>👥 Группы</h3><div id="groupsList"></div><button id="createGroupBtn">➕ Создать</button><button id="closeGroupsBtn" class="secondary">Закрыть</button></div>
+        <div class="modal" id="channelsModal"><h3>📢 Каналы</h3><div id="channelsList"></div><button id="createChannelBtn">➕ Создать</button><button id="closeChannelsBtn" class="secondary">Закрыть</button></div>
+        <div class="modal" id="createGroupModal"><h3>Группа</h3><input type="text" id="groupNameInput" placeholder="Название"><select id="groupTypeSelect"><option value="chat">💬 Чат</option><option value="forum">📂 Форум</option></select><button id="confirmGroupBtn">Создать</button><button id="cancelGroupBtn" class="secondary">Отмена</button></div>
+        <div class="modal" id="createChannelModal"><h3>Канал</h3><input type="text" id="channelNameInput" placeholder="Название"><button id="confirmChannelBtn">Создать</button><button id="cancelChannelBtn" class="secondary">Отмена</button></div>
+        <div class="modal" id="createStickerPackModal"><h3>🎨 Пак</h3><input type="text" id="stickerPackNameInput" placeholder="Название"><button id="confirmStickerPackBtn">Создать</button><button id="cancelStickerPackBtn" class="secondary">Отмена</button></div>
+        <div class="modal" id="addStickerModal"><h3>➕ Стикер</h3><input type="file" id="stickerFileInput" accept="image/*"><img id="stickerPreview"><input type="text" id="stickerEmojiInput" placeholder="Эмодзи"><button id="confirmStickerBtn">Добавить</button><button id="cancelStickerBtn" class="secondary">Отмена</button></div>
+        <div class="modal" id="giftShopModal"><h3>🎁 Магазин подарков</h3><div id="giftShopContent"></div><button id="closeGiftShopBtn" class="secondary">Закрыть</button></div>
+        <div class="modal" id="createTopicModal"><h3>📂 Тема</h3><input type="text" id="topicNameInput" placeholder="Название"><button id="confirmTopicBtn">Создать</button><button id="cancelTopicBtn" class="secondary">Отмена</button></div>
+        <div class="modal" id="createPollModal"><h3>📊 Голосование</h3><input type="text" id="pollQuestionInput" placeholder="Вопрос"><input type="text" id="pollOptionsInput" placeholder="Варианты через запятую"><button id="confirmPollBtn">Создать</button><button id="cancelPollBtn" class="secondary">Отмена</button></div>
+        <div class="modal" id="groupSettingsModal"><h3>⚙️ Настройки</h3><div id="groupSettingsContent"></div><button id="closeGroupSettingsBtn" class="secondary">Закрыть</button></div>
+
+        <div class="image-viewer" id="imageViewer"><img id="fullscreenImage"></div>
+        <div class="call-modal hidden" id="callModal">
+            <div class="call-header"><span id="callPeerName">Звонок</span><span id="callDuration">00:00</span></div>
+            <div class="call-video" id="callVideo"></div>
+            <div class="call-controls"><button id="callMicBtn">🎤</button><button id="callCamBtn">📷</button><button id="callEndBtn">❌</button></div>
+        </div>
+    </div>
+    <script src="bundle.js"></script>
+</body>
+</html>
