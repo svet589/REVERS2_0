@@ -14,6 +14,13 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
+// ============================================================
+// sticker-manager.js — ФИНАЛЬНАЯ ВЕРСИЯ
+// ============================================================
+const MAX_STICKER_SIZE_BYTES = 512 * 1024;
+const MAX_STICKERS_PER_PACK = 100;
+const MAX_PACKS = 20;
+
 class StickerManager {
   constructor() {
     this.packs = JSON.parse(localStorage.getItem('revers_stickers') || '{}');
@@ -23,27 +30,55 @@ class StickerManager {
   getPacks() {
     return {
       recent: { name: '⭐ Недавние', stickers: this.recent, isSystem: true },
-      default: { name: '🦊 Базовые', stickers: ['👍','😂','❤️','😮','😢','🔥','🎉','💯','🤔','🥳','😎','🐏'], isSystem: true },
+      default: { name: '🦊 Базовые', stickers: ['👍','😂','❤️','😮','😢','🔥','🎉','💯','🤔','🥳','😎','🙏'], isSystem: true },
       ...this.packs
     };
   }
 
+  getPackNames() {
+    return Object.keys(this.packs);
+  }
+
   getStickers(packId) {
     if (packId === 'recent') return this.recent;
-    if (packId === 'default') return ['👍','😂','❤️','😮','😢','🔥','🎉','💯','🤔','🥳','😎','🙏','😭','🍻'];
+    if (packId === 'default') return ['👍','😂','❤️','😮','😢','🔥','🎉','💯','🤔','🥳','😎','🙏'];
     return this.packs[packId]?.stickers || [];
   }
 
   createPack(name) {
+    if (this.getPackNames().length >= MAX_PACKS) {
+      console.warn('Достигнут лимит стикерпаков');
+      return null;
+    }
     const id = 'pack_' + Date.now().toString(36);
     this.packs[id] = { name, stickers: [], created: Date.now() };
-    this._save(); return id;
+    this._save();
+    return id;
   }
 
-  addSticker(packId, data, emoji = '') {
-    if (packId === 'recent' || packId === 'default' || !this.packs[packId]) return false;
-    this.packs[packId].stickers.push({ id: 'st_' + Date.now().toString(36), data, emoji, added: Date.now() });
-    this._save(); return true;
+  addSticker(packId, dataUrl, emoji = '') {
+    if (packId === 'recent' || packId === 'default') return false;
+    if (!this.packs[packId]) return false;
+    if (this.packs[packId].stickers.length >= MAX_STICKERS_PER_PACK) {
+      console.warn('Достигнут лимит стикеров в паке');
+      return false;
+    }
+
+    // Проверка размера
+    const estimatedSize = dataUrl.length * 0.75;
+    if (estimatedSize > MAX_STICKER_SIZE_BYTES) {
+      console.warn('Стикер слишком большой');
+      return false;
+    }
+
+    this.packs[packId].stickers.push({
+      id: 'st_' + Date.now().toString(36),
+      data: dataUrl,
+      emoji,
+      added: Date.now()
+    });
+    this._save();
+    return true;
   }
 
   addToRecent(stickerData) {
@@ -55,10 +90,21 @@ class StickerManager {
 
   deletePack(packId) {
     if (packId === 'recent' || packId === 'default') return;
-    delete this.packs[packId]; this._save();
+    delete this.packs[packId];
+    // Удаляем стикеры этого пака из недавних
+    this.recent = this.recent.filter(s => {
+      if (typeof s === 'object' && s.packId === packId) return false;
+      return true;
+    });
+    localStorage.setItem('revers_recent_stickers', JSON.stringify(this.recent));
+    this._save();
   }
 
-  _save() { localStorage.setItem('revers_stickers', JSON.stringify(this.packs)); }
+  _save() {
+    try {
+      localStorage.setItem('revers_stickers', JSON.stringify(this.packs));
+    } catch (e) {}
+  }
 }
 
 export default new StickerManager();
