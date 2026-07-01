@@ -18,46 +18,51 @@
  *
  * Copyright (C) 2025 svet589 <https://github.com/svet589>
  */
-// crypto-module.js — пост-квантовое E2E шифрование
-// X25519 + ML-KEM-768 → гибридный обмен ключами
-// ChaCha20-Poly1305 → шифрование сообщений
+// ============================================================
+// crypto-module.js — ФИНАЛЬНАЯ ВЕРСИЯ
+// ============================================================
+import sodium from 'libsodium-wrappers-sumo';
+import { ml_kem768 } from '@noble/post-quantum/ml-kem-768';
 
-let sodium = null;
 let mlkem = null;
 
 class CryptoModule {
   constructor() {
-    this.sharedKeys = new Map();
-    this._ready = this._init();
+    this._readyPromise = this._init();
   }
 
   async _init() {
-    const lib = await import('libsodium-wrappers');
-    await lib.ready;
-    sodium = lib;
-
-    // Пробуем загрузить пост-квантовый модуль
+    await sodium.ready;
+    if (!sodium) throw new Error('Sodium не загружен');
     try {
-      const pq = await import('@noble/post-quantum/ml-kem-768');
-      mlkem = pq.ml_kem768;
-      console.log('🛡️ ML-KEM-768 загружен — пост-квантовая защита активна');
+      mlkem = ml_kem768;
+      console.log('🛡️ ML-KEM-768 загружен');
     } catch(e) {
-      console.log('⚠️ ML-KEM-768 недоступен, только X25519');
+      console.log('⚠️ ML-KEM-768 недоступен');
     }
   }
 
-  async ready() {
-    await this._ready;
-    return !!sodium;
-  }
+  async ready() { return this._readyPromise; }
 
-  // ========== ГЕНЕРАЦИЯ КЛЮЧЕЙ ==========
+  // Вспомогательные конвертеры
+  base64ToUint8Array(base64) { return sodium.from_base64(base64); }
+  uint8ArrayToBase64(arr) { return sodium.to_base64(arr); }
+
+  // ========== КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ #1: computeSharedKey ==========
+  async computeSharedKey(mySecretKey, peerPublicKey) {
+    if (!sodium) await this.ready();
+    const shared = sodium.crypto_scalarmult(
+      sodium.from_base64(mySecretKey),
+      sodium.from_base64(peerPublicKey)
+    );
+    return sodium.crypto_generichash(32, shared);
+  }
 
   async generateX25519KeyPair() {
     const kp = sodium.crypto_kx_keypair();
     return {
-      publicKey: sodium.to_base64(kp.publicKey),
-      secretKey: sodium.to_base64(kp.privateKey)
+      publicKey: this.uint8ArrayToBase64(kp.publicKey),
+      secretKey: this.uint8ArrayToBase64(kp.privateKey)
     };
   }
 
@@ -70,114 +75,78 @@ class CryptoModule {
     };
   }
 
-  // ========== ГИБРИДНЫЙ ОБМЕН КЛЮЧАМИ ==========
-
-  async encapsulateHybrid(peerX25519Pk, peerMlkemPk) {
-    // 1. X25519
-    const x25519Shared = sodium.crypto_scalarmult(
-      sodium.from_base64(this.myX25519Sk || ''),
-      sodium.from_base64(peerX25519Pk)
-    );
-
-    // 2. ML-KEM-768
+  async encapsulateHybrid(ourX25519SkBase64, peerX25519PkBase64, peerMlkemPkBase64) {
+    const x25519Shared = await this.computeSharedKey(ourX25519SkBase64, peerX25519PkBase64);
     let mlkemShared = null;
     let ciphertext = null;
-    if (mlkem && peerMlkemPk) {
-      const result = mlkem.encapsulate(Buffer.from(peerMlkemPk, 'base64'));
+    if (mlkem && peerMlkemPkBase64) {
+      const result = mlkem.encapsulate(Buffer.from(peerMlkemPkBase64, 'base64'));
       mlkemShared = result.sharedSecret;
       ciphertext = Buffer.from(result.ciphertext).toString('base64');
     }
-
-    // 3. Комбинируем
-    const combined = new Uint8Array(32 + (mlkemShared?.length || 0));
+    const combined = new Uint8Array(32 + (mlkemShared ? 32 : 0));
     combined.set(x25519Shared.slice(0, 32));
     if (mlkemShared) combined.set(mlkemShared.slice(0, 32), 32);
-
-    // 4. Финальный ключ через HKDF
     const sharedKey = sodium.crypto_generichash(32, combined);
-
     return { sharedKey, ciphertext };
   }
 
-  async decapsulateHybrid(myX25519Sk, myMlkemSk, peerX25519Pk, ciphertext) {
-    // 1. X25519
-    const x25519Shared = sodium.crypto_scalarmult(
-      sodium.from_base64(myX25519Sk),
-      sodium.from_base64(peerX25519Pk)
-    );
-
-    // 2. ML-KEM-768
+  async decapsulateHybrid(ourX25519SkBase64, ourMlkemSkBase64, peerX25519PkBase64, ciphertextBase64) {
+    const x25519Shared = await this.computeSharedKey(ourX25519SkBase64, peerX25519PkBase64);
     let mlkemShared = null;
-    if (mlkem && myMlkemSk && ciphertext) {
+    if (mlkem && ourMlkemSkBase64 && ciphertextBase64) {
       mlkemShared = mlkem.decapsulate(
-        Buffer.from(ciphertext, 'base64'),
-        Buffer.from(myMlkemSk, 'base64')
+        Buffer.from(ciphertextBase64, 'base64'),
+        Buffer.from(ourMlkemSkBase64, 'base64')
       );
     }
-
-    // 3. Комбинируем
-    const combined = new Uint8Array(32 + (mlkemShared?.length || 0));
+    const combined = new Uint8Array(32 + (mlkemShared ? 32 : 0));
     combined.set(x25519Shared.slice(0, 32));
     if (mlkemShared) combined.set(mlkemShared.slice(0, 32), 32);
-
-    // 4. Финальный ключ
     return sodium.crypto_generichash(32, combined);
   }
 
-  // ========== ШИФРОВАНИЕ СООБЩЕНИЙ ==========
-
-  encrypt(sharedKey, plaintext) {
+  encrypt(sharedKeyUint8Array, plaintextString) {
     const nonce = sodium.randombytes_buf(sodium.crypto_aead_chacha20poly1305_IETF_NPUBBYTES);
     const ciphertext = sodium.crypto_aead_chacha20poly1305_ietf_encrypt(
-      sodium.from_string(plaintext),
-      null,
-      null,
-      nonce,
-      sharedKey
+      sodium.from_string(plaintextString), null, null, nonce, sharedKeyUint8Array
     );
     return {
-      nonce: sodium.to_base64(nonce),
-      ciphertext: sodium.to_base64(ciphertext)
+      nonce: this.uint8ArrayToBase64(nonce),
+      ciphertext: this.uint8ArrayToBase64(ciphertext)
     };
   }
 
-  decrypt(sharedKey, encryptedData) {
+  decrypt(sharedKeyUint8Array, encryptedObject) {
     try {
-      const nonce = sodium.from_base64(encryptedData.nonce);
-      const ciphertext = sodium.from_base64(encryptedData.ciphertext);
-      const decrypted = sodium.crypto_aead_chacha20poly1305_ietf_decrypt(
-        null, ciphertext, null, nonce, sharedKey
+      const nonce = this.base64ToUint8Array(encryptedObject.nonce);
+      const ciphertext = this.base64ToUint8Array(encryptedObject.ciphertext);
+      return sodium.to_string(
+        sodium.crypto_aead_chacha20poly1305_ietf_decrypt(null, ciphertext, null, nonce, sharedKeyUint8Array)
       );
-      return sodium.to_string(decrypted);
-    } catch(e) {
-      return null;
-    }
+    } catch(e) { return null; }
   }
 
-  // ========== ПОДПИСИ ==========
-
-  sign(secretKey, message) {
-    const sig = sodium.crypto_sign_detached(
-      sodium.from_string(message),
-      sodium.from_base64(secretKey)
+  // sign() — синхронный, не требует await
+  sign(secretKeyBase64, message) {
+    return this.uint8ArrayToBase64(
+      sodium.crypto_sign_detached(sodium.from_string(message), this.base64ToUint8Array(secretKeyBase64))
     );
-    return sodium.to_base64(sig);
   }
 
-  verify(publicKey, message, signature) {
+  verify(publicKeyBase64, message, signatureBase64) {
     try {
       return sodium.crypto_sign_verify_detached(
-        sodium.from_base64(signature),
+        this.base64ToUint8Array(signatureBase64),
         sodium.from_string(message),
-        sodium.from_base64(publicKey)
+        this.base64ToUint8Array(publicKeyBase64)
       );
-    } catch(e) {
-      return false;
-    }
+    } catch(e) { return false; }
   }
 
   hash(data) {
-    return sodium.to_base64(sodium.crypto_generichash(32, sodium.from_string(data)));
+    const input = typeof data === 'string' ? sodium.from_string(data) : data;
+    return this.uint8ArrayToBase64(sodium.crypto_generichash(32, input));
   }
 }
 
