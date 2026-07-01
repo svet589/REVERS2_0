@@ -18,68 +18,79 @@
  *
  * Copyright (C) 2025 svet589 <https://github.com/svet589>
  */
-  // p2p-engine.js — главный API
+// ============================================================
+// p2p-engine.js — ФИНАЛЬНАЯ ВЕРСИЯ
+// ============================================================
 import identity from './identity.js';
-import p2pNetwork from './p2p-network.js';
 import cryptoModule from './crypto-module.js';
+import p2pNetwork from './p2p-network.js';
 import messageHandler from './message-handler.js';
 import callManager from './call-manager.js';
 import groupManager from './group-manager.js';
+import swarmManager from './swarm-manager.js';
 
 class P2PEngine {
   constructor() {
     this.ready = false;
     this._onReady = null;
-    this.p2pNetwork = p2pNetwork;
   }
 
   async init() {
-    console.log('╔══════════════════════════╗');
-    console.log('║   REVERS ENGINE v3.2    ║');
-    console.log('╚══════════════════════════╝');
     await identity.ready();
     await cryptoModule.ready();
     p2pNetwork.start();
+
+    // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ #7: интеграция swarm-manager
+    await swarmManager.start();
+    swarmManager.onMessage((msg) => {
+      messageHandler.handleIncoming(msg);
+    });
+
     p2pNetwork.onMessage((msg) => {
       if (msg.type === 'call-signal') callManager.handleSignal(msg.from, msg);
-      else if (msg.type === 'p2p-signal') messageHandler.handleIncoming(msg);
       else if (msg.type === 'group_message') messageHandler.handleIncoming(msg);
       else messageHandler.handleIncoming(msg);
     });
+
     this.ready = true;
-    console.log('✅ Engine готов. Мой ID:', identity.id);
+    // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ #8: экспорт в window
+    window.REVERS = this;
     if (this._onReady) this._onReady();
   }
 
-  getMyId() { return identity.id; }
+  getMyId() { return identity.getMyId(); }
   getMyProfile() { return identity.getProfile(); }
   setName(n) { identity.setName(n); }
   setAvatar(b) { identity.setAvatar(b); }
 
   connectToPeer(id) { return p2pNetwork.connectToPeer(id); }
   acceptPeer(id, s) { return p2pNetwork.acceptPeer(id, s); }
-  applySignal(id, s) { return p2pNetwork.applySignal(id, s); }
   isConnected(id) { return p2pNetwork.isConnected(id); }
+
+  // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ #6: недостающие методы
+  getConnectedPeers() { return p2pNetwork.getConnectedPeers(); }
+  sendTyping(peerId, isTyping = true) { p2pNetwork.sendToPeer(peerId, { type: 'typing', isTyping }); }
+  async startGroupCall(groupKey, video = true) { return callManager.startGroupCall(groupKey, video); }
 
   sendMessage(id, t) { return messageHandler.sendMessage(id, t); }
   sendFile(id, f) { return messageHandler.sendFile(id, f); }
   sendVoice(id, a, d) { return messageHandler.sendVoice(id, a, d); }
   sendGift(id, g) { return messageHandler.sendGift(id, g); }
-  async recordVoice() { return await messageHandler.recordVoice(); }
-  async getChatHistory(id) { return await messageHandler.getChatHistory(id); }
-  async getAllChats() { return await messageHandler.getAllChats(); }
-  async clearChatHistory(id) { return await messageHandler.clearChatHistory(id); }
+  recordVoice() { return messageHandler.recordVoice(); }
+  getChatHistory(id) { return messageHandler.getChatHistory(id); }
+  getAllChats() { return messageHandler.getAllChats(); }
+  clearChatHistory(id) { return messageHandler.clearChatHistory(id); }
 
-  createGroup(n, t = 'chat') { return groupManager.createGroup(n, t); }
-  sendGroupMessage(k, t) { return groupManager.sendGroupMessage(k, t); }
+  createGroup(n, t) { return groupManager.createGroup(n, t); }
+  sendGroupMessage(k, t) { return messageHandler.sendGroupMessage(k, t); }
   getGroupHistory(k) { return groupManager.groups.get(k)?.history || []; }
 
   createChannel(n) { return messageHandler.createChannel(n); }
   sendChannelMessage(k, t) { return messageHandler.sendChannelMessage(k, t); }
   getChannelHistory(k) { return messageHandler.getChannelHistory(k); }
 
-  async startCall(id, v = true) { return await callManager.startCall(id, v); }
-  async acceptCall(id, v = true) { return await callManager.acceptCall(id, v); }
+  startCall(id, v) { return callManager.startCall(id, v); }
+  acceptCall(id, v, o, k) { return callManager.acceptCall(id, v, o, k); }
   endCall(id) { callManager.endCall(id); }
   toggleAudio(id) { callManager.toggleAudio(id); }
   toggleVideo(id) { callManager.toggleVideo(id); }
@@ -90,8 +101,7 @@ class P2PEngine {
   onRemoteStream(cb) { callManager.onStream(cb); }
   onCallEnded(cb) { callManager.onEnd(cb); }
   onReady(cb) { this._onReady = cb; if (this.ready) cb(); }
-
-  shutdown() { callManager.endAllCalls(); p2pNetwork.stop(); }
 }
 
-export default new P2PEngine();
+const engine = new P2PEngine();
+export default engine;
