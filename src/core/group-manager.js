@@ -18,6 +18,11 @@
  *
  * Copyright (C) 2025 svet589 <https://github.com/svet589>
  */
+// ============================================================
+// group-manager.js — ФИНАЛЬНАЯ ВЕРСИЯ
+// ============================================================
+import identity from './identity.js';
+
 class GroupManager {
   constructor() {
     this.groups = new Map();
@@ -30,13 +35,53 @@ class GroupManager {
       key, name, type,
       admin: this._myId(),
       members: [this._myId()],
-      topics: type === 'forum' ? [{ id: 'general', name: '💬 Общий чат', closed: false, pinned: true, created: Date.now() }] : [],
+      topics: type === 'forum' ? [{ id: 'general', name: '💬 Общий чат', closed: false, pinned: true, created: Date.now(), messages: [] }] : [],
       history: [],
       created: Date.now()
     };
     this.groups.set(key, group);
     this._save();
     return group;
+  }
+
+  getGroup(key) { return this.groups.get(key); }
+
+  // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ #5: receiveGroupMessage
+  receiveGroupMessage(data) {
+    const { group, data: msgData } = data;
+    const g = this.groups.get(group);
+    if (!g) return;
+    g.history.push({
+      from: msgData.from || 'unknown',
+      text: msgData.text || '',
+      time: msgData.time || Date.now(),
+      type: 'text'
+    });
+    this._save();
+  }
+
+  sendGroupMessage(key, text) {
+    const g = this.groups.get(key);
+    if (!g) return false;
+    g.history.push({ from: this._myId(), text, time: Date.now(), type: 'text' });
+    this._save();
+    return true;
+  }
+
+  // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ #10: createPoll и addAnnouncement
+  createPoll(groupKey, question, options) {
+    const g = this.groups.get(groupKey);
+    if (!g) return;
+    const pollText = `📊 Голосование: ${question}\n${options.map((o, i) => `${i+1}. ${o}`).join('\n')}`;
+    g.history.push({ from: this._myId(), text: pollText, time: Date.now(), type: 'poll', pollData: { question, options, votes: {} } });
+    this._save();
+  }
+
+  addAnnouncement(groupKey, text) {
+    const g = this.groups.get(groupKey);
+    if (!g) return;
+    g.history.push({ from: this._myId(), text: `📢 ${text}`, time: Date.now(), type: 'announcement' });
+    this._save();
   }
 
   addTopic(groupKey, name) {
@@ -48,69 +93,15 @@ class GroupManager {
     return topic;
   }
 
-  removeTopic(groupKey, topicId) {
-    const g = this.groups.get(groupKey);
-    if (!g) return false;
-    g.topics = g.topics.filter(t => t.id !== topicId);
-    this._save();
-    return true;
-  }
-
-  togglePinTopic(groupKey, topicId) {
-    const g = this.groups.get(groupKey);
-    const t = g?.topics.find(t => t.id === topicId);
-    if (t) t.pinned = !t.pinned;
-    this._save();
-  }
-
-  toggleCloseTopic(groupKey, topicId) {
-    const g = this.groups.get(groupKey);
-    const t = g?.topics.find(t => t.id === topicId);
-    if (t) t.closed = !t.closed;
-    this._save();
-  }
-
-  sendToTopic(groupKey, topicId, text) {
-    const g = this.groups.get(groupKey);
-    const t = g?.topics.find(t => t.id === topicId);
-    if (!t || (t.closed && g.admin !== this._myId())) return false;
-    const msg = { from: this._myId(), text, time: Date.now(), type: 'text' };
-    t.messages.push(msg);
-    this._save();
-    return msg;
-  }
-
   getTopics(groupKey) {
     const g = this.groups.get(groupKey);
-    return [...(g?.topics || [])].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || b.created - a.created);
+    if (!g || g.type !== 'forum') return [];
+    return [...(g.topics || [])].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
   }
 
-  getTopicMessages(groupKey, topicId) {
-    return this.groups.get(groupKey)?.topics.find(t => t.id === topicId)?.messages || [];
-  }
-
-  setGroupType(groupKey, type) {
-    const g = this.groups.get(groupKey);
-    if (!g) return;
-    g.type = type;
-    if (type === 'forum' && !g.topics.length) g.topics.push({ id: 'general', name: '💬 Общий чат', closed: false, pinned: true, created: Date.now() });
-    this._save();
-  }
-
-  updateGroupName(groupKey, name) { const g = this.groups.get(groupKey); if (g) { g.name = name; this._save(); } }
-  deleteGroup(groupKey) { this.groups.delete(groupKey); this._save(); }
-
-  sendGroupMessage(key, text) {
-    const g = this.groups.get(key);
-    if (!g) return false;
-    g.history.push({ from: this._myId(), text, time: Date.now(), type: 'text' });
-    this._save();
-    return true;
-  }
-
-  _myId() { return localStorage.getItem('revers_id') || 'unknown'; }
-  _save() { try { localStorage.setItem('revers_groups_v2', JSON.stringify(Array.from(this.groups.entries()))); } catch(e) {} }
-  _load() { try { const d = JSON.parse(localStorage.getItem('revers_groups_v2')); if (d) this.groups = new Map(d); } catch(e) {} }
+  _myId() { return (typeof identity !== 'undefined' && identity.id) ? identity.id : localStorage.getItem('revers_id') || 'unknown'; }
+  _save() { try { localStorage.setItem('revers_groups_v5', JSON.stringify(Array.from(this.groups.entries()))); } catch(e) {} }
+  _load() { try { const d = JSON.parse(localStorage.getItem('revers_groups_v5')); if (d) this.groups = new Map(d); } catch(e) {} }
 }
 
 export default new GroupManager();
